@@ -1,0 +1,5 @@
+# BTC_USD (spot) pair configuration
+pair: BTC_USD
+order_amount: 0.1
+tick_size: 0.01
+pingpong_enabled: false

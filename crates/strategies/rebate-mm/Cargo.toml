@@ -1,0 +1,12 @@
+[package]
+name = "rebate-mm"
+version = "0.1.0"
+edition = "2021"
+
+description = "Rebate MM — microprice fair value, fixed spread, inventory skew, vol filter, hedge"
+
+[dependencies]
+mm-core = { path = "../../mm-core" }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+thiserror = { workspace = true }

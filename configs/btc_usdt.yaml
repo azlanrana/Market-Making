@@ -1,0 +1,4 @@
+# BTC_USDT pair configuration for Rebate-Alpha backtest
+pair: BTC_USDT
+order_amount: 0.1
+tick_size: 0.01

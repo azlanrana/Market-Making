@@ -1,0 +1,30 @@
+[package]
+name = "mm-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mm-core-types = { path = "../core" }
+mm-simulator = { path = "../simulator" }
+mm-portfolio = { path = "../portfolio" }
+mm-metrics = { path = "../metrics" }
+mm-core = { path = "../mm-core" }
+orderbook = { path = "../orderbook" }
+data-loader = { path = "../data-loader" }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+balanced-mm = { path = "../strategies/balanced-mm" }
+csv = "1.3"
+queue-farmer = { path = "../strategies/queue-farmer" }
+queue-farmer-v2 = { path = "../strategies/queue-farmer-v2" }
+queue-farmer-v3 = { path = "../strategies/queue-farmer-v3" }
+queue-farmer-v4 = { path = "../strategies/queue-farmer-v4" }
+rebate-mm = { path = "../strategies/rebate-mm" }
+data-loader = { path = "../data-loader" }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }

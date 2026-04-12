@@ -1,0 +1,36 @@
+[package]
+name = "mm-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "mm-cli"
+path = "src/main.rs"
+
+[dependencies]
+mm-core = { path = "../mm-core" }
+mm-core-types = { path = "../core" }
+backtest-engine = { path = "../backtest-engine" }
+mm-engine = { path = "../engine" }
+balanced-mm = { path = "../strategies/balanced-mm" }
+rebate-mm = { path = "../strategies/rebate-mm" }
+data-loader = { path = "../data-loader" }
+crypto-com-api = { path = "../crypto-com-api" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+chrono = { workspace = true }
+aws-sdk-s3 = "1.0"
+aws-config = "1.0"
+ssh2 = "0.9"
+flate2 = "1.0"
+futures = "0.3"
+rayon = "1.8"
+crossbeam-channel = "0.5"
+bytes = "1"
+

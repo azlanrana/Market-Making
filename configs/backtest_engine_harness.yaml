@@ -1,0 +1,31 @@
+# =============================================================================
+# Master backtest harness defaults (S3 RebateMM runs)
+# =============================================================================
+#
+# Merged under each profile/sweep `base` row: profile keys override these.
+# Fees + queue sim live here so ETH/BTC YAMLs stay strategy + sizing focused.
+#
+# Optional path override: BACKTEST_ENGINE_HARNESS=/abs/or/rel/path.yaml
+# Env still overrides crossed-book survival: CROSSED_BOOK_SURVIVAL_RATE
+# =============================================================================
+
+defaults:
+  tick_size: 0.01
+
+  maker_fee_bps: -0.75
+  taker_fee_bps: 1.5
+
+  touch_queue_pct: 0.4
+  queue_depletion_enabled: true
+  queue_churn_enabled: false
+  delta_trade_fraction: 0.4
+  min_delta_for_fill: 0.001
+  queue_turnover_rate_per_sec: 0.5
+  cancel_ahead_fraction: 0.5
+  crossed_book_survival_rate: 0.5
+  crossed_book_fill_enabled: true
+
+# BacktestEngine::new(strategy, initial_quote, initial_base, fee_model, tick_size)
+capital:
+  initial_quote: 1000000
+  initial_base: 1

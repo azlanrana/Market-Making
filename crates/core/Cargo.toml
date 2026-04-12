@@ -1,0 +1,10 @@
+[package]
+name = "mm-core-types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+num-traits = { workspace = true }

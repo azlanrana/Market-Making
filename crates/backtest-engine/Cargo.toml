@@ -1,0 +1,28 @@
+[package]
+name = "backtest-engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mm-core = { path = "../mm-core" }
+orderbook = { path = "../orderbook" }
+data-loader = { path = "../data-loader" }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+orderbook = { path = "../orderbook" }
+balanced-mm = { path = "../strategies/balanced-mm" }
+rebate-alpha = { path = "../strategies/rebate-alpha" }
+queue-farmer = { path = "../strategies/queue-farmer" }
+data-loader = { path = "../data-loader" }
+mm-core = { path = "../mm-core" }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }

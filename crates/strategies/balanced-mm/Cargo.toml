@@ -1,0 +1,11 @@
+[package]
+name = "balanced-mm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mm-core = { path = "../../mm-core" }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

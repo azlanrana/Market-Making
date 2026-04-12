@@ -1,0 +1,12 @@
+[package]
+name = "rebate-alpha"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mm-core = { path = "../../mm-core" }
+chrono = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

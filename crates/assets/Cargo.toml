@@ -1,0 +1,11 @@
+[package]
+name = "assets"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mm-core = { path = "../mm-core" }
+rust_decimal = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+

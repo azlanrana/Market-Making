@@ -1,0 +1,5 @@
+# ETH_USD (spot) pair configuration
+pair: ETH_USD
+order_amount: 1.0
+tick_size: 0.01
+pingpong_enabled: false

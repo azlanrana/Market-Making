@@ -1,0 +1,6 @@
+# ETH_USDT pair configuration
+pair: ETH_USDT
+order_amount: 1.0
+tick_size: 0.01
+# Balanced MM: ping-pong (scratch orders) loses on ETH - disable to test
+pingpong_enabled: false

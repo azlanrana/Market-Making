@@ -1,0 +1,148 @@
+# =============================================================================
+# Phase 1 — spread-depth probabilistic touch only (12 runs)
+# =============================================================================
+# Varies: p_good × p_neutral × p_bad. Everything else matches `rebate_mm_btc.yaml`
+# at time of creation (thresholds frozen: bad −0.35/−0.22, good 0.1/0.05, ticks 2/1/0).
+#
+# IMPORTANT: `REBATE_MM_PROFILE=btc` makes the loader read `rebate_mm_btc.yaml` first
+# and IGNORE this file. For sweeps:
+#   unset REBATE_MM_PROFILE
+#   SWEEP_CONFIG=configs/sweep_spread_depth_phase1_btc.yaml
+#
+# Run (from `mm/`):
+#   unset REBATE_MM_PROFILE && SWEEP_CONFIG=configs/sweep_spread_depth_phase1_btc.yaml \
+#   S3_BUCKET=l2btcusdt S3_PREFIX=2025/2025/01/ TRADING_PAIR=BTC_USDT AWS_REGION=us-east-1 \
+#   MAX_CONCURRENT_DOWNLOADS=32 SWEEP_OUTPUT_CSV=sweep_phase1_prob_btc_jan2025.csv \
+#   cargo test -p mm-engine backtest_s3_sweep --release -- --ignored --nocapture
+#
+# If this file drifts from `rebate_mm_btc.yaml`, copy `base:` from there and keep only
+# the `grid:` block below for Phase 1.
+# =============================================================================
+
+base:
+  order_amount: 0.5
+
+  base_spread: 4.0
+  vol_lookback: 50
+  vol_threshold_bps: 2.0
+  max_spread_multiplier: 4.0
+
+  inventory_limit: 3.0
+  hedge_limit: 3.0
+  inventory_skew_k: 0.25
+
+  book_imbalance_threshold: 0.80
+  book_imbalance_levels: 3
+
+  microprice_impulse_lookback: 4
+  microprice_impulse_threshold_bps: 1.0
+  microprice_impulse_pause_sec: 1.0
+  microprice_edge_threshold_bps: 0.0
+  microprice_edge_size_scale_enabled: false
+  microprice_edge_scale_k_bps: 0.02
+  microprice_edge_scale_min_mult: 0.3
+  microprice_edge_scale_max_mult: 1.0
+  microprice_edge_tape_regime_enabled: false
+  microprice_edge_tape_spread_ewma_alpha: 0.02
+  microprice_edge_tape_relax_low_spread_bps: -0.02
+  microprice_edge_tape_relax_high_spread_bps: 0.08
+  microprice_edge_tape_min_fills: 50
+  microprice_edge_tape_upside_enabled: false
+  microprice_edge_tape_upside_use_regime_band: true
+  microprice_edge_tape_upside_max_mult: 1.15
+  microprice_edge_tape_upside_low_spread_bps: 0.10
+  microprice_edge_tape_upside_high_spread_bps: 0.20
+  microprice_edge_tape_upside_min_fills: 50
+
+  impulse_phase1_sizing: true
+  impulse_phase1_calm: 1.2
+  impulse_phase1_mid: 0.8
+  impulse_phase1_min: 0.6
+
+  impulse_kill_threshold_bps: 1.0
+  impulse_kill_asymmetric: true
+  impulse_kill_hybrid_extreme_bps: null
+
+  impulse_size_skew_enabled: false
+  impulse_skew_favored: 1.15
+  impulse_skew_lean: 0.75
+
+  directional_skew_enabled: false
+  directional_signal_threshold_ticks: 0.15
+  directional_suppress_threshold_ticks: 1.0
+  directional_widen_ticks: 1
+
+  microprice_drift_enabled: false
+  microprice_drift_lookback: 10
+  microprice_drift_threshold_bps: 2.0
+
+  microprice_fade_enabled: false
+  microprice_fade_min_edge_bps: 0.02
+  microprice_fade_ticks: 1
+  microprice_fade_impulse_min_bps: 0.0
+  microprice_fade_impulse_bucketed: false
+  microprice_fade_bucket_impulse_lo_bps: 0.25
+  microprice_fade_bucket_impulse_hi_bps: 0.65
+  microprice_fade_bucket_max_ticks: 3
+
+  dynamic_spread_enabled: true
+
+  queue_join_touch_enabled: true
+
+  conditional_touch_join_enabled: false
+  conditional_touch_max_impulse_bps: 0.4
+  conditional_touch_max_edge_bps: 0.012
+  fill_touch_brake_enabled: false
+  fill_touch_brake_bad_spread_bps: -0.35
+  fill_touch_brake_sec: 0.35
+  wide_spread_max_bps: 6.0
+  asymmetric_passive_depth: true
+  queue_join_safe_side_threshold_bps: 0.45
+  queue_join_safe_side_max_touch_qty: 30.0
+  state_passive_max_depth_ticks: 2
+  passive_depth_spread_capture_bias: true
+
+  # --- Phase 1 FROZEN (do not sweep here; Phase 2 varies thresholds) ---
+  spread_depth_regime_enabled: false
+  spread_depth_regime_ewma_alpha: 0.02
+  spread_depth_regime_min_fills: 50
+  spread_depth_bad_enter_bps: -0.35
+  spread_depth_bad_exit_bps: -0.22
+  spread_depth_good_enter_bps: 0.1
+  spread_depth_good_exit_bps: 0.05
+  spread_depth_ticks_bad: 2
+  spread_depth_ticks_neutral: 1
+  spread_depth_ticks_good: 0
+  spread_depth_participation_floor_enabled: true
+  spread_depth_participation_window_sec: 900.0
+  spread_depth_participation_min_fills: 2
+  spread_depth_prob_touch_enabled: true
+  # Defaults below are overridden by `grid` for every run
+  spread_depth_prob_touch_p_good: 0.85
+  spread_depth_prob_touch_p_neutral: 0.5
+  spread_depth_prob_touch_p_bad: 0.05
+
+  spread_toxicity_brake_enabled: false 
+
+  quote_stickiness_min_hold_sec: 0.25
+  quote_stickiness_hysteresis_ticks: 1
+  quote_stickiness_depth_min_delta_ticks: 2
+
+  order_refresh_sec: 0.75
+  warmup_sec: 30.0
+
+  mid_regime_spread_penalty_enabled: true
+  mid_impulse_lo: 0.6
+  mid_impulse_hi: 0.9
+  tight_spread_bps: 2.5
+  mid_regime_size_mult: 0.8
+
+  dynamic_order_sizing: true
+  dynamic_order_min: 0.1
+  dynamic_order_max: 2.0
+
+# 2 × 3 × 2 = 12 experiments
+grid:
+  spread_depth_prob_touch_p_good: [0.85, 0.95]
+  spread_depth_prob_touch_p_neutral: [0.5, 0.6, 0.7]
+  spread_depth_prob_touch_p_bad: [0.0, 0.05]

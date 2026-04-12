@@ -1,0 +1,12 @@
+[package]
+name = "queue-farmer-v3"
+version = "0.1.0"
+edition = "2021"
+
+description = "QueueFarmer v3 — 1 bps price-improving, book imbalance filter, snapshot-safe"
+
+[dependencies]
+mm-core = { path = "../../mm-core" }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+thiserror = { workspace = true }

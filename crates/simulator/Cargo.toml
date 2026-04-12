@@ -1,0 +1,12 @@
+[package]
+name = "mm-simulator"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mm-core-types = { path = "../core" }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+
+[dev-dependencies]
+rust_decimal = { workspace = true }

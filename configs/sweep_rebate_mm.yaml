@@ -1,0 +1,251 @@
+# =============================================================================
+# Parameter sweep for RebateMM — capitalscaling & tuning
+# Sequential grids (one family at a time): see ../../REBATE_MM_SURGICAL_TUNING.md
+# =============================================================================
+#
+# Run: SWEEP_CONFIG=configs/sweep_rebate_mm.yaml S3_BUCKET=ethusdt2025 \
+#      S3_PREFIX=ETH_USDT/ AWS_REGION=us-east-1 \
+#      cargo test -p mm-engine backtest_s3_sweep --release -- --ignored --nocapture
+#
+# Per-asset profiles: REBATE_MM_PROFILE=eth|btc → configs/rebate_mm_eth.yaml / rebate_mm_btc.yaml
+# Shared fees/queue/tick/capital: configs/backtest_engine_harness.yaml (profile overrides on conflict).
+#
+# Results written to SWEEP_OUTPUT_CSV (default: sweep_results.csv)
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# BASE CONFIG — BEST25MARCH: Phase 2.3 winner (asymmetric kill ON) + prior mid-regime / Phase 1.
+# Params in `grid` or `experiments` override these per run.
+# -----------------------------------------------------------------------------
+
+base:
+  # --- Order sizing ---
+  order_amount: 0.5
+  # How big each limit order is (in ETH). This gets scaled by Phase 1 multiplier when sizing is on.
+
+  # --- Spread & volatility ---
+  base_spread: 4.0
+  # Distance between bid and ask in bps. Wider = fewer fills but more profit per fill. 4 bps = ~0.04%.
+
+  vol_lookback: 50
+  # How many price snapshots to look back when measuring volatility. More = smoother but slower to react.
+
+  vol_threshold_bps: 2.0
+  # If measured vol is below this, we use normal spread. Above = we widen spread to protect ourselves.
+
+  max_spread_multiplier: 4.0
+  # Max we'll widen the spread when vol is high. Stops spread from blowing out in chaos.
+
+  # --- Inventory (Stoikov skew) ---
+  inventory_limit: 1.0
+  # Hedge when |inventory| exceeds this (ETH). Caps directional risk.
+
+  hedge_limit: 1.0
+  # Same as inventory_limit (or slightly lower). When to trigger hedge.
+
+  inventory_skew_k: 0.25
+  # When we're long/short, we shift quotes to encourage the opposite side. Higher = more aggressive lean.
+
+  # --- Book imbalance filter ---
+  book_imbalance_threshold: 0.80
+  # If bid-side volume >> ask-side (or vice versa), the book is one-sided. We may pull quotes or back off.
+
+  book_imbalance_levels: 3
+  # How many price levels we look at to measure imbalance (top 3 on each side).
+
+  # --- Microprice impulse (feeds kill / pause / phase1 sizing) ---
+  microprice_impulse_lookback: 4
+  # How many snapshots to measure "how fast did price move?" 4 ≈ a few seconds. Used for all impulse logic.
+
+  microprice_impulse_threshold_bps: 1.0
+  # If |impulse| exceeds this and microprice_impulse filter is on, we pause quoting briefly.
+
+  microprice_impulse_pause_sec: 1.0
+  # How long we stay quiet after a big impulse move (let things calm down).
+
+  microprice_edge_threshold_bps: 0.0
+  # Phase 4.1: if >0, only quote when |microprice−mid|/mid·10⁴ bps ≥ this. 0 = off (see REBATE_MM_PHASE4_EDGE.md).
+
+  microprice_edge_size_scale_enabled: true
+  microprice_edge_scale_k_bps: 0.02
+  microprice_edge_scale_min_mult: 0.3
+  microprice_edge_scale_max_mult: 1.0
+  # If enabled: multiply clip by linear ramp from |microprice−mid| (bps); does not skip quotes.
+
+  microprice_edge_tape_regime_enabled: false
+  microprice_edge_tape_spread_ewma_alpha: 0.02
+  microprice_edge_tape_relax_low_spread_bps: -0.02
+  microprice_edge_tape_relax_high_spread_bps: 0.08
+  microprice_edge_tape_min_fills: 50
+  microprice_edge_tape_upside_enabled: false
+  microprice_edge_tape_upside_use_regime_band: true
+  microprice_edge_tape_upside_max_mult: 1.15
+  microprice_edge_tape_upside_low_spread_bps: 0.10
+  microprice_edge_tape_upside_high_spread_bps: 0.20
+  microprice_edge_tape_upside_min_fills: 50
+
+  # --- Impulse phase1 sizing (capitalscaling.md) ---
+  # We scale order size by how "calm" or "chaotic" the book is. Calm = bigger size, chaotic = smaller.
+  # Ref (rebate-mm `impulse_phase1_raw_bucket_multiplier`): |imp| bps edges are FIXED in code — <0.30→calm, 0.30–0.60→1.0×, 0.60–1.00→mid, ≥1.00→min.
+  # Then EMA 0.8·prev + 0.2·raw and hard clamp [0.5, 1.3]. YAML only sets calm / mid / min multipliers.
+  impulse_phase1_sizing: true
+  impulse_phase1_calm: 1.2
+  # When book is calm (|imp|<0.30 bps), quote 1.2× normal size.
+
+  impulse_phase1_mid: 0.8
+  # When book is moderately active (0.60–1.00 bps), quote 0.8×.
+
+  impulse_phase1_min: 0.6
+  # When book is fast/toxic (|imp|≥1.00 bps), quote 0.6×.
+
+  # --- Impulse kill switch ---
+  impulse_kill_threshold_bps: 1.0
+  # BEST25MARCH (Mar 2026): sweep winner with asymmetric kill — see sweep_kill_asym_threshold_1p0_1p25.csv
+
+  impulse_kill_asymmetric: true
+  # BEST25MARCH: true = one-sided cancel on strong impulse (Phase 2.3 sweep winner).
+
+  impulse_kill_hybrid_extreme_bps: null
+  # When set (e.g. 3.0): threshold≤|imp|<extreme → cancel both; |imp|≥extreme → one-sided only. Mutually exclusive with impulse_kill_asymmetric.
+
+  # --- Impulse size skew (Phase 2.5b) ---
+  impulse_size_skew_enabled: false
+  # When true, scale bid/ask sizes by signed impulse (favored side bigger, lean side smaller).
+
+  impulse_skew_favored: 1.15
+  # Multiplier on the favored side when impulse_size_skew is on (e.g. bid when imp>0).
+
+  impulse_skew_lean: 0.75
+  # Multiplier on the lean side when impulse_size_skew is on.
+
+  # --- Directional skew ---
+  directional_skew_enabled: false
+  # When true, use microprice vs mid to lean away from the weaker side.
+
+  directional_signal_threshold_ticks: 0.5
+  # Min microprice-mid distance (ticks) to trigger directional lean.
+
+  directional_suppress_threshold_ticks: 1.0
+  # Above this, we may suppress the weak side entirely.
+
+  directional_widen_ticks: 1
+  # Extra ticks to widen on the weak side.
+  # Ref (stdout diagnostics): |signal_ticks| histogram bins are fixed in code — [0,0.15), [0.15,0.5), [0.5,1), [1,2), [2,∞).
+
+  # --- Microprice drift filter ---
+  microprice_drift_enabled: false
+  # When true, pause or adjust when microprice drifts from mid.
+
+  microprice_drift_lookback: 10
+  # Snapshots for drift calc.
+
+  microprice_drift_threshold_bps: 2.0
+  # Drift above this triggers filter.
+
+  microprice_fade_enabled: false
+  microprice_fade_min_edge_bps: 0.02
+  microprice_fade_ticks: 1
+  microprice_fade_impulse_min_bps: 0.0
+  microprice_fade_impulse_bucketed: false
+  microprice_fade_bucket_impulse_lo_bps: 0.3
+  microprice_fade_bucket_impulse_hi_bps: 0.8
+  microprice_fade_bucket_max_ticks: 2
+
+  # --- Dynamic spread ---
+  dynamic_spread_enabled: true
+  # When true: spread_bps = max(vol-scaled base spread, live top-of-book spread in bps). Compare vs false on same month.
+
+  # --- Queue join touch ---
+  queue_join_touch_enabled: true
+  # Allow posting at the touch when safe. Queue-aware safe-side join uses this.
+
+  conditional_touch_join_enabled: false
+  conditional_touch_max_impulse_bps: 0.6
+  conditional_touch_max_edge_bps: 0.02
+  fill_touch_brake_enabled: false
+  fill_touch_brake_bad_spread_bps: -0.5
+  fill_touch_brake_sec: 0.2
+
+  # --- Wide spread filter ---
+  wide_spread_max_bps: 6.0
+  # If live spread exceeds this, stop quoting. Wide spread = unstable, often bad to be in.
+
+  # --- Passive depth & queue join ---
+  asymmetric_passive_depth: true
+  # Step back from the touch differently on bid vs ask based on microprice. Avoid selling into strength.
+
+  queue_join_safe_side_threshold_bps: 0.45
+  # Min |impulse| needed to allow "join the touch" (post at best bid/ask). Calmer = safer to join.
+
+  queue_join_safe_side_max_touch_qty: 30.0
+  # Max size we'll post at the touch when joining. Avoids overcommitting when queue is thin.
+
+  state_passive_max_depth_ticks: 2
+  # Max ticks we step back from the most aggressive price. 0 = at touch, 2 = a bit behind.
+  # Ref (rebate-mm `passive_depth_ticks`): only when queue_join_touch_enabled: false; touch-join skips this path.
+  # f = |impulse_bps| / microprice_impulse_threshold_bps. passive_depth_spread_capture_bias true → d 0/1/2/3 at f 0.45/0.70/0.90; false → 0.33/0.55/0.75.
+  # Vol r = vol_bps / vol_threshold_bps: bias true → 0/1/2/3 at r 1.08/1.32/1.55; false → 1.0/1.25/1.5.
+  # Imbalance dist = |imbalance−0.5|: bias true → 0/1/2 at 0.15/0.24; false → 0.12/0.20.
+  # Combine: base=min(max(d_impulse,d_imb),2); +1 if d_vol≥2; min(state_passive_max_depth_ticks).
+
+  passive_depth_spread_capture_bias: true
+  # Favor being at touch (depth 0) when impulse is mild. More spread capture, less stepping back.
+
+  # --- Quote stickiness (reduce churn) ---
+  quote_stickiness_min_hold_sec: 0.25
+  # Don't change our quoted price for at least this long after the last change. Reduces flicker.
+
+  quote_stickiness_hysteresis_ticks: 1
+  # Ignore small price moves (smaller than 1 tick). Avoids tiny repricings.
+
+  quote_stickiness_depth_min_delta_ticks: 2
+  # Only change how far we step back when the new value differs by at least 2 ticks.
+
+  # --- Timing ---
+  order_refresh_sec: 0.75
+  # Min seconds between quote refreshes. Faster = more reactive but more churn.
+
+  warmup_sec: 30.0
+  # No quoting for the first 30 seconds. Lets vol/impulse buffers fill before we act.
+
+  # --- Mid-regime spread penalty (same as NEWBEST24MARCH sweep winner) ---
+  mid_regime_spread_penalty_enabled: true
+  mid_impulse_lo: 0.6
+  mid_impulse_hi: 0.9
+  tight_spread_bps: 2.5
+  mid_regime_size_mult: 0.8
+  # |imp| in [lo, hi] AND live spread < tight_spread_bps → size *= mult (after Phase 1).
+
+# -----------------------------------------------------------------------------
+# GRID — empty: single run = `base` only. Previous: base_spread [3.75, 4.0, 4.25, 4.5] (sweep_base_spread_202501.csv ~flat).
+#
+# Spread-depth Phase 1 (prob touch only, 12 runs, BTC): use dedicated file and **unset REBATE_MM_PROFILE**:
+#   SWEEP_CONFIG=configs/sweep_spread_depth_phase1_btc.yaml
+# See header inside that file for the full command.
+# -----------------------------------------------------------------------------
+grid: {}
+
+# # --- Previous: Phase 4.2 REJECTED ---
+# grid:
+#   directional_skew_enabled: [false, true]
+#   directional_suppress_threshold_ticks: [1.0, 1.5]
+# Phase 4.1 grid was: microprice_edge_threshold_bps: [0.0, 0.05, 0.1, 0.15]
+
+# # --- Previous: Phase 2.4 touch join (9 runs) ---
+# grid:
+#   queue_join_safe_side_threshold_bps: [0.40, 0.45, 0.50]
+#   queue_join_safe_side_max_touch_qty: [30, 35, 40]
+
+# -----------------------------------------------------------------------------
+# EXPERIMENTS — Explicit runs (alternative to grid). Comment out `grid` to use.
+# -----------------------------------------------------------------------------
+
+# experiments:
+#   - name: baseline_no_phase1
+#     impulse_phase1_sizing: false
+#   - name: phase1_conservative
+#     impulse_phase1_sizing: true
+#     impulse_phase1_calm: 1.1
+#     impulse_phase1_mid: 0.9
+#     impulse_phase1_min: 0.7

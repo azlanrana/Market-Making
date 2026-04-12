@@ -1,0 +1,32 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Python / env
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+
+# Never commit keys or Crypto.com SFTP material
+user080*
+*private*key*
+id_rsa*
+*.pem
+
+# Large generated backtest exports (keep repo clone-friendly)
+*_fills.csv
+*_markout_1s.csv
+crates/engine/backtest_*.csv
+backtest_*.csv
+btcusd_*_dynamic*.csv
+baseline*/
+
+# Logs / scratch
+*.log
+sweep_results.csv
