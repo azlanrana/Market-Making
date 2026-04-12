@@ -269,6 +269,7 @@ Adjust `sftp-remote-path` so date iteration matches your SFTP layout (the CLI wa
 
 | Doc                                      | Content                                                           |
 | ---------------------------------------- | ----------------------------------------------------------------- |
+| [RESULTS.md](RESULTS.md)                 | Consolidated 2025 monthly backtest results (ETH_USD, BTC_USD)     |
 | [QUICK_START.md](QUICK_START.md)         | S3 buckets reference, backtest one-liners, CSV export, Plotly viz |
 | [DATA_GUIDE.md](DATA_GUIDE.md)           | SFTP, S3 upload, env vars for data                                |
 | [PARAMETER_SWEEP.md](PARAMETER_SWEEP.md) | Sweep YAML format and RebateMM parameters                         |

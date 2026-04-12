@@ -32,6 +32,8 @@ This repo is a **research and backtesting stack**. It is not a drop-in productio
 
 On long **BTC USDT** RebateMM-style backtests with the bundled fee / queue harness, exported metrics have looked like **~0.5 bps net edge per fill** with **rebate carrying the economics** while short-horizon markouts stay near flat—i.e. the edge is **rebate and microstructure**, not directional alpha.
 
+**Full-year 2025 month-by-month tables (ETH_USD & BTC_USD):** [RESULTS.md](RESULTS.md) *(as of 1 April 2026; sums of independent monthly runs).*
+
 Illustrative row from `*_metrics.csv` (one run; not a guarantee for other pairs or regimes):
 
 ```text
