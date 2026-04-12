@@ -2,7 +2,7 @@
 
 Summary of **full-calendar-2025, month-by-month** RebateMM simulations on **Crypto.com L2** (S3 replay). Each row is **one independent monthly backtest** (not a single continuous year-long run). **Annual figures below are sums of monthly PnL and volume** unless stated otherwise.
 
-**Primary sources:** run logs [`LogsETHUSD.md`](../LogsETHUSD.md) and [`LogsBTCUSD-RebateMM.md`](../LogsBTCUSD-RebateMM.md) (repo parent; copy into docs if you publish without that tree).
+**Primary sources:** internal run logs **`LogsETHUSD.md`** and **`LogsBTCUSD-RebateMM.md`** (kept alongside this workspace outside the published `mm` tree; copy into `docs/` here if you want them on GitHub).
 
 **Shared harness (typical):** `configs/backtest_engine_harness.yaml` — e.g. maker fee **−0.75 bps**, taker **+1.5 bps**, `touch_queue_pct` **0.4**, crossed-book survival **0.5**. Strategy: **`rebate_mm_eth.yaml`** / **`rebate_mm_btc.yaml`** with **dynamic order sizing** on for the tables below (see logs for exact YAML revisions per period).
 
