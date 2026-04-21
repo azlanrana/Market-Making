@@ -1,11 +1,21 @@
 # =============================================================================
-# RebateMM profile — ETH (2 ETH anchor clip; dynamic clip up to 3 ETH × Phase-1 ≤1.3 fits inventory 4)
+# Base conditional-touch threshold sweep for ETH_USD
 # =============================================================================
+# Goal: ETH's dynamic conditional-touch controller improved quality in Nov 2025
+# but cut too much participation. Hold the dynamic band fixed at the best Nov run
+# and sweep the base conditional-touch thresholds to see if ETH needs a looser
+# touch gate than BTC.
 #
-# Use: REBATE_MM_PROFILE=eth cargo test -p mm-engine backtest_s3_rebate_mm --release -- --ignored --nocapture
-#   with S3_BUCKET, S3_PREFIX, TRADING_PAIR=ETH_USD (or your ETH pair), etc.
+# IMPORTANT: `REBATE_MM_PROFILE=eth` would cause the loader to use
+# `rebate_mm_eth.yaml` instead of this file. For this sweep, unset it.
 #
-# Same schema as sweep_rebate_mm.yaml. Fees/queue/tick/capital: backtest_engine_harness.yaml (override there or below).
+# Run from `mm/`:
+#   unset REBATE_MM_PROFILE && \
+#   SWEEP_CONFIG=configs/sweep_conditional_touch_base_eth.yaml \
+#   S3_BUCKET=l2ethusd S3_PREFIX=2025/ TRADING_PAIR=ETH_USD AWS_REGION=us-east-1 \
+#   S3_START_DATE=2025-11-01 S3_END_DATE=2025-11-30 \
+#   MAX_CONCURRENT_DOWNLOADS=32 SWEEP_OUTPUT_CSV=sweep_nov_2025_ethusd_conditional_touch_base.csv \
+#   cargo test -p mm-engine backtest_s3_sweep --release -- --ignored --nocapture
 # =============================================================================
 
 base:
@@ -16,7 +26,6 @@ base:
   vol_threshold_bps: 2.0
   max_spread_multiplier: 4.0
 
-  # Must be ≥ `dynamic_order_max` × max Phase-1 mult (~1.3) so flat-inventory bids are not blocked (3×1.3=3.9≤4).
   inventory_limit: 4.0
   hedge_limit: 4.0
   inventory_skew_k: 0.25
@@ -28,9 +37,7 @@ base:
   microprice_impulse_threshold_bps: 1.0
   microprice_impulse_pause_sec: 1.0
   microprice_edge_threshold_bps: 0.0
-
-  # Parity with BTC Mar 2025 mp-edge sweep winner (k=0.02, min=0.3); revalidate per pair/month.
-  microprice_edge_size_scale_enabled: false
+  microprice_edge_size_scale_enabled: true
   microprice_edge_scale_k_bps: 0.02
   microprice_edge_scale_min_mult: 0.3
   microprice_edge_scale_max_mult: 1.0
@@ -46,10 +53,6 @@ base:
   microprice_edge_tape_upside_high_spread_bps: 0.20
   microprice_edge_tape_upside_min_fills: 50
 
-  # --- Ref: Phase 1 impulse SIZE buckets (rebate-mm `impulse_phase1_raw_bucket_multiplier`) ---
-  # |signed microprice impulse| in bps uses FIXED code edges (not YAML): <0.30 → calm mult; [0.30,0.60) → 1.0×; [0.60,1.00) → mid; ≥1.00 → min.
-  # Then EMA 0.8·prev + 0.2·raw and hard clamp [0.5, 1.3]. Keys below are calm / mid / min multipliers only.
-
   impulse_phase1_sizing: true
   impulse_phase1_calm: 1.2
   impulse_phase1_mid: 0.8
@@ -63,14 +66,10 @@ base:
   impulse_skew_favored: 1.15
   impulse_skew_lean: 0.75
 
-  # When true: stdout includes `--- Directional skew ---` histogram of |signal_ticks| + deadband %.
-  # Parked off (parity with BTC): touch-join + skew hurt Apr 2025 BTC sim (see LogsBTCUSD.md).
   directional_skew_enabled: false
-  # Lower = earlier widen/suppress; 0.5 leaves most small microprice leans in deadband (see log).
   directional_signal_threshold_ticks: 0.15
   directional_suppress_threshold_ticks: 1.0
   directional_widen_ticks: 1
-  # Ref: stdout `--- Directional skew ---` uses fixed |signal_ticks| bins [0,0.15), [0.15,0.5), [0.5,1), [1,2), [2,∞).
 
   microprice_drift_enabled: false
   microprice_drift_lookback: 10
@@ -89,8 +88,8 @@ base:
 
   queue_join_touch_enabled: true
   conditional_touch_join_enabled: true
-  conditional_touch_max_impulse_bps: 0.6
-  conditional_touch_max_edge_bps: 0.020
+  conditional_touch_max_impulse_bps: 0.4
+  conditional_touch_max_edge_bps: 0.012
   dynamic_conditional_touch_enabled: true
   dynamic_conditional_touch_ewma_alpha: 0.02
   dynamic_conditional_touch_min_fills: 50
@@ -103,12 +102,6 @@ base:
   asymmetric_passive_depth: true
   queue_join_safe_side_threshold_bps: 0.45
   queue_join_safe_side_max_touch_qty: 120.0
-  # --- Ref: passive DEPTH buckets (rebate-mm `passive_depth_ticks`) ---
-  # Used only when queue_join_touch_enabled: false (touch-join forces depth path off in strategy).
-  # f = |impulse_bps| / microprice_impulse_threshold_bps. passive_depth_spread_capture_bias true → depth 0/1/2/3 at f thresholds 0.45 / 0.70 / 0.90; false → 0.33 / 0.55 / 0.75.
-  # Vol r = short_horizon_vol_bps / vol_threshold_bps: bias true → 0/1/2/3 at r 1.08 / 1.32 / 1.55; false → 1.0 / 1.25 / 1.5.
-  # Imbalance dist = |imbalance−0.5|: bias true → 0/1/2 at 0.15 / 0.24; false → 0.12 / 0.20.
-  # Combine: base = min(max(d_impulse, d_imb), 2); +1 if d_vol ≥ 2; cap at state_passive_max_depth_ticks.
   state_passive_max_depth_ticks: 2
   passive_depth_spread_capture_bias: true
 
@@ -125,23 +118,10 @@ base:
   tight_spread_bps: 2.5
   mid_regime_size_mult: 0.8
 
-  # Dynamic clip from rolling net-edge proxy + fill rate (`rebate-mm`). `order_amount` must sit in [min, max].
-  # Effective max = min(`dynamic_order_max`, `inventory_limit`); cap 3 keeps Phase-1 bids under inv 4.
   dynamic_order_sizing: true
   dynamic_order_min: 0.4
   dynamic_order_max: 3.0
-  # maker_fee_bps: -0.75   # merged from harness if omitted; used in edge estimate
-  # dynamic_step_up: 1.1
-  # dynamic_step_down: 0.85
-  # dynamic_cooldown_sec: 60
-  # dynamic_edge_alpha_fast: 0.15
-  # dynamic_edge_alpha_slow: 0.02
-  # dynamic_edge_deadband_bps: 0.15
-  # dynamic_bad_edge_streak: 5
-  # dynamic_flow_window_sec: 120
-  # dynamic_flow_low_ratio: 0.85
-  # dynamic_flow_ref_alpha: 0.05
-  # dynamic_min_fills_before_resize: 30
-  # dynamic_flow_ref_min_for_step_up: 0.005   # fills/s; avoids ratcheting size when flow EMA is ~0
 
-grid: {}
+grid:
+  conditional_touch_max_impulse_bps: [0.4, 0.5, 0.6]
+  conditional_touch_max_edge_bps: [0.012, 0.016, 0.020]

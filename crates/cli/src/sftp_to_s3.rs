@@ -7,8 +7,8 @@ use std::net::TcpStream;
 use std::path::Path;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::primitives::ByteStream;
-use aws_sdk_s3::error::ProvideErrorMetadata;
 use bytes::Bytes;
+use std::collections::HashSet;
 use std::io::Read;
 use std::sync::Arc;
 use std::time::{Instant, Duration};
@@ -173,36 +173,35 @@ pub async fn upload_sftp_to_s3(
         all_files.iter().map(|(r, s, d)| (r.clone(), s.clone(), *d)).collect()
     } else {
         println!("Checking existing files in S3...");
-        
-        // Check which files already exist in S3
+        let existing_keys = list_existing_s3_keys(&s3_client, s3_bucket, s3_prefix).await?;
+        println!("  Found {} existing keys under {}", existing_keys.len(), s3_prefix);
+
         let mut files_to_upload = Vec::new();
         let mut existing_count = 0;
         let total_to_check = all_files.len();
-        let mut checked_count = 0;
         let check_start = Instant::now();
-        
-        for (remote_path, s3_key, date) in all_files.iter() {
-            checked_count += 1;
-            
-            // Show progress every 1000 files or every 5 seconds
-            if checked_count % 1000 == 0 || (checked_count > 0 && check_start.elapsed().as_secs() >= 5) {
+
+        for (idx, (remote_path, s3_key, date)) in all_files.iter().enumerate() {
+            let checked_count = idx + 1;
+
+            // Show progress every 5000 files plus a final checkpoint
+            if checked_count % 5000 == 0 || (checked_count == total_to_check && check_start.elapsed().as_secs() >= 1) {
                 let percent = (checked_count as f64 / total_to_check as f64) * 100.0;
-                println!("  Checked {}/{} files ({:.1}%) - Found {} existing, {} to upload", 
-                    checked_count, total_to_check, percent, existing_count, files_to_upload.len());
+                println!(
+                    "  Checked {}/{} files ({:.1}%) - Found {} existing, {} to upload",
+                    checked_count,
+                    total_to_check,
+                    percent,
+                    existing_count,
+                    files_to_upload.len()
+                );
             }
-            
-            match check_s3_file_exists(&s3_client, s3_bucket, s3_key).await {
-                Ok(true) => {
-                    existing_count += 1;
-                    stats.skipped.fetch_add(1, Ordering::Relaxed);
-                }
-                Ok(false) => {
-                    files_to_upload.push((remote_path.clone(), s3_key.clone(), *date));
-                }
-                Err(_) => {
-                    // Silently skip errors - assume file doesn't exist and try to upload
-                    files_to_upload.push((remote_path.clone(), s3_key.clone(), *date));
-                }
+
+            if existing_keys.contains(s3_key) {
+                existing_count += 1;
+                stats.skipped.fetch_add(1, Ordering::Relaxed);
+            } else {
+                files_to_upload.push((remote_path.clone(), s3_key.clone(), *date));
             }
         }
         
@@ -371,27 +370,49 @@ pub async fn upload_sftp_to_s3(
     Ok(())
 }
 
-async fn check_s3_file_exists(
+async fn list_existing_s3_keys(
     s3_client: &S3Client,
     bucket: &str,
-    key: &str,
-) -> Result<bool> {
-    match s3_client
-        .head_object()
-        .bucket(bucket)
-        .key(key)
-        .send()
-        .await
-    {
-        Ok(_) => Ok(true),
-        Err(e) => {
-            if e.code() == Some("NotFound") {
-                Ok(false)
-            } else {
-                Err(anyhow::anyhow!("S3 error: {:?}", e))
+    prefix: &str,
+) -> Result<HashSet<String>> {
+    let mut keys = HashSet::new();
+    let mut continuation_token: Option<String> = None;
+    let mut pages = 0usize;
+
+    loop {
+        let mut request = s3_client
+            .list_objects_v2()
+            .bucket(bucket)
+            .prefix(prefix)
+            .max_keys(1000);
+
+        if let Some(token) = continuation_token.as_deref() {
+            request = request.continuation_token(token);
+        }
+
+        let response = request.send().await?;
+        pages += 1;
+
+        if let Some(objects) = response.contents {
+            for object in objects {
+                if let Some(key) = object.key {
+                    keys.insert(key);
+                }
             }
         }
+
+        if pages % 50 == 0 {
+            println!("  Listed {} S3 pages under {} ({} keys so far)", pages, prefix, keys.len());
+        }
+
+        if response.is_truncated.unwrap_or(false) {
+            continuation_token = response.next_continuation_token;
+        } else {
+            break;
+        }
     }
+
+    Ok(keys)
 }
 
 enum SftpDownloadMsg {

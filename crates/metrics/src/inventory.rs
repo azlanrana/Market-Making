@@ -4,28 +4,17 @@ use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 
 #[derive(Debug, Clone, Default)]
-pub struct InventorySnapshot {
-    #[allow(dead_code)]
-    pub ts: f64,
-    #[allow(dead_code)]
-    pub base_balance: f64,
-    #[allow(dead_code)]
-    pub mid_price: f64,
-    #[allow(dead_code)]
-    pub portfolio_value: f64,
-    pub unrealized_pnl: f64,
-}
-
-#[derive(Debug, Clone)]
 pub struct InventoryTracker {
-    snapshots: Vec<InventorySnapshot>,
+    sample_count: u64,
+    abs_inventory_sum: f64,
+    max_abs_inventory: f64,
+    first_unrealized_pnl: Option<f64>,
+    last_unrealized_pnl: Option<f64>,
 }
 
 impl InventoryTracker {
     pub fn new() -> Self {
-        Self {
-            snapshots: Vec::new(),
-        }
+        Self::default()
     }
 
     /// Record portfolio state at a snapshot.
@@ -43,8 +32,6 @@ impl InventoryTracker {
         let quote_f = quote_balance.to_f64().unwrap_or(0.0);
         let avg_f = avg_cost.to_f64().unwrap_or(0.0);
 
-        let portfolio_value = quote_f + base_f * mid_f;
-
         let unrealized_pnl = if base_f > 0.0 && avg_f > 0.0 {
             (mid_f - avg_f) * base_f
         } else if base_f < 0.0 {
@@ -54,26 +41,30 @@ impl InventoryTracker {
             0.0
         };
 
-        self.snapshots.push(InventorySnapshot {
-            ts,
-            base_balance: base_f,
-            mid_price: mid_f,
-            portfolio_value,
-            unrealized_pnl,
-        });
+        let _ = ts;
+        let _ = quote_f;
+
+        self.sample_count += 1;
+        let abs_inventory = base_f.abs();
+        self.abs_inventory_sum += abs_inventory;
+        self.max_abs_inventory = self.max_abs_inventory.max(abs_inventory);
+        if self.first_unrealized_pnl.is_none() {
+            self.first_unrealized_pnl = Some(unrealized_pnl);
+        }
+        self.last_unrealized_pnl = Some(unrealized_pnl);
     }
 
     /// Average absolute inventory (in base units) over the run.
     pub fn avg_inventory(&self) -> f64 {
-        if self.snapshots.is_empty() {
+        if self.sample_count == 0 {
             return 0.0;
         }
-        self.snapshots.iter().map(|s| s.base_balance.abs()).sum::<f64>() / self.snapshots.len() as f64
+        self.abs_inventory_sum / self.sample_count as f64
     }
 
     /// Max absolute inventory reached.
     pub fn max_inventory(&self) -> f64 {
-        self.snapshots.iter().map(|s| s.base_balance.abs()).fold(0.0f64, f64::max)
+        self.max_abs_inventory
     }
 
     /// Inventory PnL as fraction of total PnL. Healthy: inventory losses < 30% of profits.
@@ -87,9 +78,9 @@ impl InventoryTracker {
         let total_pnl = last_portfolio_value - first_portfolio_value;
 
         let inventory_pnl = if let (Some(first), Some(last)) =
-            (self.snapshots.first(), self.snapshots.last())
+            (self.first_unrealized_pnl, self.last_unrealized_pnl)
         {
-            last.unrealized_pnl - first.unrealized_pnl
+            last - first
         } else {
             0.0
         };

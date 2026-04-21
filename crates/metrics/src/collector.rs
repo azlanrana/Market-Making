@@ -83,6 +83,7 @@ pub struct MetricsCollector {
     crossed_book_fill_count: u64,
     maker_rebate_total: Decimal,
     taker_fee_total: Decimal,
+    markout_enabled: bool,
     markout_tracker: MarkoutTracker,
     inventory_tracker: InventoryTracker,
     quote_placement_ts: f64,
@@ -111,6 +112,7 @@ impl MetricsCollector {
             crossed_book_fill_count: 0,
             maker_rebate_total: Decimal::ZERO,
             taker_fee_total: Decimal::ZERO,
+            markout_enabled: true,
             markout_tracker: MarkoutTracker::new(),
             inventory_tracker: InventoryTracker::new(),
             quote_placement_ts: 0.0,
@@ -184,7 +186,9 @@ impl MetricsCollector {
     }
 
     pub fn record_fill_for_markout(&mut self, fill: &Fill, mid_at_fill: Decimal) {
-        self.markout_tracker.record_fill(fill, mid_at_fill);
+        if self.markout_enabled {
+            self.markout_tracker.record_fill(fill, mid_at_fill);
+        }
     }
 
     pub fn record_inventory_snapshot(
@@ -200,7 +204,9 @@ impl MetricsCollector {
     }
 
     pub fn process_markout_snapshot(&mut self, ts: f64, mid_price: Decimal) {
-        self.markout_tracker.process_snapshot(ts, mid_price);
+        if self.markout_enabled {
+            self.markout_tracker.process_snapshot(ts, mid_price);
+        }
     }
 
     pub fn record_quote_lifetime(&mut self, lifetime_sec: f64) {
@@ -228,9 +234,22 @@ impl MetricsCollector {
         &self.markout_tracker
     }
 
+    pub fn markout_enabled(&self) -> bool {
+        self.markout_enabled
+    }
+
+    pub fn with_markout_enabled(mut self, enabled: bool) -> Self {
+        self.markout_enabled = enabled;
+        self
+    }
+
     /// Per-fill 1s adverse/markout (for CSV export / distribution analysis).
     pub fn resolved_1s_markouts(&self) -> Vec<crate::markout::Markout1sRecord> {
-        self.markout_tracker.resolved_1s_records().to_vec()
+        if self.markout_enabled {
+            self.markout_tracker.resolved_1s_records().to_vec()
+        } else {
+            Vec::new()
+        }
     }
 
     pub fn inventory_tracker(&self) -> &InventoryTracker {

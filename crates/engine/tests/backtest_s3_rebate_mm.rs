@@ -8,6 +8,7 @@
 //! - Narrow with `S3_PREFIX` (recommended), e.g. `2025/2025/01/` for January.
 //! - Or set both `S3_START_DATE` and `S3_END_DATE` as `YYYY-MM-DD` (filters by `/YYYY/MM/DD/` in keys).
 //! - `MAX_FILES` caps listing after filters (optional; omit for no cap).
+//! - `BACKTEST_FAST_MODE=1` disables per-fill markout tracking to reduce CPU/RAM on dense months.
 //!
 //! Pick which sweep experiment to mirror (same merged YAML as sweep run N):
 //!   REBATE_MM_SWEEP_RUN_INDEX=0   (default; first grid / experiment row)
@@ -185,14 +186,28 @@ async fn backtest_s3_rebate_mm() {
     );
 
     let (initial_quote, initial_base) = engine_capital_from_harness(&engine_harness);
+    let output_csv = std::env::var("BACKTEST_OUTPUT_CSV").ok();
+    let fast_mode = std::env::var("BACKTEST_FAST_MODE")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if fast_mode {
+        println!("Fast mode: markout tracking disabled (BACKTEST_FAST_MODE=1)");
+    }
 
-    let fills: Arc<Mutex<Vec<CoreFill>>> = Arc::new(Mutex::new(Vec::new()));
-    let fills_clone = fills.clone();
+    let fills = output_csv
+        .as_ref()
+        .map(|_| Arc::new(Mutex::new(Vec::<CoreFill>::new())));
+
     let mut engine = BacktestEngine::new(strategy, initial_quote, initial_base, fee_model, tick_size)
         .with_queue_config(queue_config)
-        .with_fill_callback(move |f: &CoreFill| {
+        .with_markout_enabled(!fast_mode);
+
+    if let Some(ref fills) = fills {
+        let fills_clone = fills.clone();
+        engine = engine.with_fill_callback(move |f: &CoreFill| {
             fills_clone.lock().unwrap().push(f.clone());
         });
+    }
 
     let start_time = Instant::now();
     let results = match engine.run(loader).await {
@@ -233,7 +248,7 @@ async fn backtest_s3_rebate_mm() {
         println!("\n{}", gates);
     }
 
-    if let Ok(csv_path) = std::env::var("BACKTEST_OUTPUT_CSV") {
+    if let Some(csv_path) = output_csv {
         let path = std::path::Path::new(&csv_path);
         let abs_path = if path.is_relative() {
             let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -259,37 +274,39 @@ async fn backtest_s3_rebate_mm() {
             eprintln!("Failed to create {}", abs_path.display());
         }
 
-        let fills_guard = fills.lock().unwrap();
-        if !fills_guard.is_empty() {
-            let fills_path = abs_path.with_extension("");
-            let fills_path = format!("{}_fills.csv", fills_path.display());
-            let fills_path = std::path::Path::new(&fills_path);
-            if let Ok(mut f) = std::fs::File::create(fills_path) {
-                let _ = writeln!(f, "timestamp,side,price,amount,value_usd,order_id,layer,fill_reason");
-                for fill in fills_guard.iter() {
-                    let side = match fill.side {
-                        Side::Buy => "BUY",
-                        Side::Sell => "SELL",
-                    };
-                    let value = (fill.price * fill.amount).to_string().trim().to_string();
-                    let reason = fill
-                        .fill_reason
-                        .map(|r| format!("{:?}", r))
-                        .unwrap_or_else(|| String::new());
-                    let _ = writeln!(
-                        f,
-                        "{},{},{},{},{},{},{},{}",
-                        fill.timestamp,
-                        side,
-                        fill.price,
-                        fill.amount,
-                        value,
-                        fill.order_id,
-                        fill.layer,
-                        reason
-                    );
+        if let Some(fills) = fills.as_ref() {
+            let fills_guard = fills.lock().unwrap();
+            if !fills_guard.is_empty() {
+                let fills_path = abs_path.with_extension("");
+                let fills_path = format!("{}_fills.csv", fills_path.display());
+                let fills_path = std::path::Path::new(&fills_path);
+                if let Ok(mut f) = std::fs::File::create(fills_path) {
+                    let _ = writeln!(f, "timestamp,side,price,amount,value_usd,order_id,layer,fill_reason");
+                    for fill in fills_guard.iter() {
+                        let side = match fill.side {
+                            Side::Buy => "BUY",
+                            Side::Sell => "SELL",
+                        };
+                        let value = (fill.price * fill.amount).to_string().trim().to_string();
+                        let reason = fill
+                            .fill_reason
+                            .map(|r| format!("{:?}", r))
+                            .unwrap_or_else(|| String::new());
+                        let _ = writeln!(
+                            f,
+                            "{},{},{},{},{},{},{},{}",
+                            fill.timestamp,
+                            side,
+                            fill.price,
+                            fill.amount,
+                            value,
+                            fill.order_id,
+                            fill.layer,
+                            reason
+                        );
+                    }
+                    println!("Exported {} fills to {}", fills_guard.len(), fills_path.display());
                 }
-                println!("Exported {} fills to {}", fills_guard.len(), fills_path.display());
             }
         }
 
@@ -391,11 +408,11 @@ async fn backtest_s3_rebate_mm() {
         if let Ok(mut mf) = std::fs::File::create(&metrics_path) {
             let _ = writeln!(
                 mf,
-                "win_rate_pct,sharpe,max_drawdown_pct,fill_rate_pct,net_edge_bps,spread_capture_usd,spread_capture_bps,rebate_earned_usd,rebate_earned_bps,turnover_daily,good_fill_pct,neutral_fill_pct,toxic_fill_pct,toxic_bid_pct,toxic_ask_pct,adverse_selection_1s_bps,markout_1s_bps,final_pnl_usd"
+                "win_rate_pct,sharpe,max_drawdown_pct,fill_rate_pct,net_edge_bps,spread_capture_usd,spread_capture_bps,rebate_earned_usd,rebate_earned_bps,turnover_daily,good_fill_pct,neutral_fill_pct,toxic_fill_pct,toxic_bid_pct,toxic_ask_pct,adverse_selection_1s_bps,markout_1s_bps,volume_usd,final_pnl_usd"
             );
             let _ = writeln!(
                 mf,
-                "{:.4},{:.4},{:.4},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                "{:.4},{:.4},{:.4},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                 s.win_rate * 100.0,
                 s.sharpe,
                 s.max_drawdown * 100.0,
@@ -413,6 +430,7 @@ async fn backtest_s3_rebate_mm() {
                 ta,
                 adv1,
                 mo1,
+                s.total_volume.round_dp(2),
                 s.total_pnl.round_dp(2),
             );
             println!("Exported metrics to {}", metrics_path.display());

@@ -241,7 +241,7 @@ def load_metrics_csv(portfolio_csv: Path) -> dict[str, float | None] | None:
     return out
 
 
-# Same column order as `backtest_s3_rebate_mm` metrics export
+# Same column order as `backtest_s3_rebate_mm` metrics export (subset used for curve-only fallback)
 METRICS_CSV_COLUMNS = [
     "win_rate_pct",
     "sharpe",
@@ -253,6 +253,7 @@ METRICS_CSV_COLUMNS = [
     "rebate_earned_usd",
     "rebate_earned_bps",
     "turnover_daily",
+    "volume_usd",
     "final_pnl_usd",
 ]
 
@@ -422,6 +423,7 @@ def build_metrics_table(
     ru = g("rebate_earned_usd")
     rb = g("rebate_earned_bps")
     td = g("turnover_daily")
+    vol = g("volume_usd")
     final = g("final_pnl_usd")
     if final is None:
         final = curve_pnl
@@ -444,6 +446,7 @@ def build_metrics_table(
         "Rebate earned ($)",
         "Rebate earned (bps)",
         "Turnover (× daily)",
+        "Volume (notional USD)",
         "Final P&L",
     ]
     values = [
@@ -457,6 +460,7 @@ def build_metrics_table(
         money(ru, plus=True) if ru is not None else "—",
         f"{rb:+.4f} bps" if rb is not None else "—",
         f"{td:.2f}×" if td is not None else "—",
+        money(vol, plus=False) if vol is not None else "—",
         money(final, plus=True),
     ]
     if raw:

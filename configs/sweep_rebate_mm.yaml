@@ -7,7 +7,7 @@
 #      S3_PREFIX=ETH_USDT/ AWS_REGION=us-east-1 \
 #      cargo test -p mm-engine backtest_s3_sweep --release -- --ignored --nocapture
 #
-# Per-asset profiles: REBATE_MM_PROFILE=eth|btc → configs/rebate_mm_eth.yaml / rebate_mm_btc.yaml
+# Per-asset profiles: REBATE_MM_PROFILE=eth|btc|btcusdt → rebate_mm_eth.yaml / rebate_mm_btc.yaml / rebate_mm_btcusdt.yaml
 # Shared fees/queue/tick/capital: configs/backtest_engine_harness.yaml (profile overrides on conflict).
 #
 # Results written to SWEEP_OUTPUT_CSV (default: sweep_results.csv)

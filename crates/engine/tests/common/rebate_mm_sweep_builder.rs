@@ -179,6 +179,10 @@ pub fn run_name(config: &HashMap<String, serde_yaml::Value>, idx: usize) -> Stri
         "impulse_kill_asymmetric",
         "queue_join_safe_side_threshold_bps",
         "queue_join_safe_side_max_touch_qty",
+        "dynamic_conditional_touch_enabled",
+        "dynamic_conditional_touch_enter_bps",
+        "dynamic_conditional_touch_exit_bps",
+        "dynamic_order_max",
         "state_passive_max_depth_ticks",
         "base_spread",
         "spread_depth_prob_touch_p_good",
@@ -234,7 +238,7 @@ pub fn experiments_from_sweep(sweep: &SweepConfig) -> Vec<(String, HashMap<Strin
     }
 }
 
-/// Resolve config file paths: optional `REBATE_MM_PROFILE=eth|btc` → `rebate_mm_{profile}.yaml`,
+/// Resolve config file paths: optional `REBATE_MM_PROFILE=eth|btc|btcusdt` → `rebate_mm_{profile}.yaml`,
 /// then `SWEEP_CONFIG`, then default `sweep_rebate_mm.yaml`.
 fn sweep_config_candidate_paths() -> Vec<PathBuf> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -285,7 +289,7 @@ pub fn read_sweep_yaml() -> Result<(SweepConfig, PathBuf), String> {
         }
     }
     Err(format!(
-        "Failed to read sweep config. Tried: {:?}. Set REBATE_MM_PROFILE (eth|btc) or SWEEP_CONFIG.",
+        "Failed to read sweep config. Tried: {:?}. Set REBATE_MM_PROFILE (eth|btc|btcusdt) or SWEEP_CONFIG.",
         config_paths
     ))
 }
@@ -411,6 +415,17 @@ pub fn build_strategy(config: &HashMap<String, serde_yaml::Value>, order_amount:
     let conditional_touch_max_impulse =
         get_f64(config, "conditional_touch_max_impulse_bps", 0.6);
     let conditional_touch_max_edge = get_f64(config, "conditional_touch_max_edge_bps", 0.02);
+    let dynamic_conditional_touch = get_bool(config, "dynamic_conditional_touch_enabled", false);
+    let dynamic_conditional_touch_alpha =
+        get_f64(config, "dynamic_conditional_touch_ewma_alpha", 0.02);
+    let dynamic_conditional_touch_min_fills = config
+        .get("dynamic_conditional_touch_min_fills")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(50) as u32;
+    let dynamic_conditional_touch_enter =
+        get_f64(config, "dynamic_conditional_touch_enter_bps", -0.30);
+    let dynamic_conditional_touch_exit =
+        get_f64(config, "dynamic_conditional_touch_exit_bps", -0.15);
     let fill_touch_brake = get_bool(config, "fill_touch_brake_enabled", false);
     let fill_touch_brake_bad = get_f64(config, "fill_touch_brake_bad_spread_bps", -0.5);
     let fill_touch_brake_sec = get_f64(config, "fill_touch_brake_sec", 0.2);
@@ -545,6 +560,13 @@ pub fn build_strategy(config: &HashMap<String, serde_yaml::Value>, order_amount:
             conditional_touch_join,
             conditional_touch_max_impulse,
             conditional_touch_max_edge,
+        )
+        .with_dynamic_conditional_touch(
+            dynamic_conditional_touch,
+            dynamic_conditional_touch_alpha,
+            dynamic_conditional_touch_min_fills,
+            dynamic_conditional_touch_enter,
+            dynamic_conditional_touch_exit,
         )
         .with_fill_touch_brake(fill_touch_brake, fill_touch_brake_bad, fill_touch_brake_sec);
     let s = if dynamic_spread { s.with_dynamic_spread() } else { s };

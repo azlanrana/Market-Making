@@ -171,6 +171,11 @@ pub struct RebateMMStrategy {
     conditional_touch_join_enabled: bool,
     conditional_touch_max_impulse_bps: f64,
     conditional_touch_max_edge_bps: f64,
+    dynamic_conditional_touch_enabled: bool,
+    dynamic_conditional_touch_ewma_alpha: f64,
+    dynamic_conditional_touch_min_fills: u32,
+    dynamic_conditional_touch_enter_bps: f64,
+    dynamic_conditional_touch_exit_bps: f64,
     /// After a fill with spread capture (vs `dynamic_last_mid`) **≤** threshold bps, avoid touch until `fill_touch_brake_sec` elapses (proxy for bad immediate markout).
     fill_touch_brake_enabled: bool,
     fill_touch_brake_bad_spread_bps: f64,
@@ -223,6 +228,7 @@ pub struct RebateMMStrategy {
     /// Passive depth when toxicity downgrades touch (typically 1).
     spread_toxicity_forced_passive_ticks: u32,
 
+
     /// Mid-regime spread penalty: when |impulse| in [lo, hi] and live spread < tight_spread_bps, size *= size_mult. Surgical removal of bad trades.
     mid_regime_spread_penalty_enabled: bool,
     mid_regime_impulse_lo: f64,
@@ -274,6 +280,12 @@ pub struct RebateMMStrategy {
     spread_toxicity_u64_salt: u64,
     diag_spread_toxicity_touch_downgrades: u64,
     diag_spread_toxicity_extreme_refreshes: u64,
+    dynamic_conditional_touch_ewma: Option<f64>,
+    dynamic_conditional_touch_fill_count: u64,
+    dynamic_conditional_touch_active: bool,
+    diag_dynamic_conditional_touch_refreshes: u64,
+    diag_dynamic_conditional_touch_transitions: u64,
+
 
     /// Histogram of passive `depth_ticks` at each quote refresh (buckets 0..=6, 7+).
     /// Only incremented when state-dependent passive is on and not in full touch-join mode.
@@ -431,6 +443,11 @@ impl RebateMMStrategy {
             conditional_touch_join_enabled: false,
             conditional_touch_max_impulse_bps: 0.6,
             conditional_touch_max_edge_bps: 0.02,
+            dynamic_conditional_touch_enabled: false,
+            dynamic_conditional_touch_ewma_alpha: 0.02,
+            dynamic_conditional_touch_min_fills: 50,
+            dynamic_conditional_touch_enter_bps: -0.30,
+            dynamic_conditional_touch_exit_bps: -0.15,
             fill_touch_brake_enabled: false,
             fill_touch_brake_bad_spread_bps: -0.5,
             fill_touch_brake_sec: 0.2,
@@ -464,6 +481,7 @@ impl RebateMMStrategy {
             spread_toxicity_exit_bps: -0.4,
             spread_toxicity_touch_mult: 0.65,
             spread_toxicity_forced_passive_ticks: 1,
+
 
             mid_regime_spread_penalty_enabled: false,
             mid_regime_impulse_lo: 0.5,
@@ -502,6 +520,11 @@ impl RebateMMStrategy {
             spread_toxicity_u64_salt: 0xD1B54A32C9E7F18A,
             diag_spread_toxicity_touch_downgrades: 0,
             diag_spread_toxicity_extreme_refreshes: 0,
+            dynamic_conditional_touch_ewma: None,
+            dynamic_conditional_touch_fill_count: 0,
+            dynamic_conditional_touch_active: false,
+            diag_dynamic_conditional_touch_refreshes: 0,
+            diag_dynamic_conditional_touch_transitions: 0,
             passive_depth_hist: [0; 8],
             passive_pinch_recoveries: 0,
             passive_pinch_aborts: 0,
@@ -807,6 +830,23 @@ impl RebateMMStrategy {
         self.conditional_touch_join_enabled = enabled;
         self.conditional_touch_max_impulse_bps = max_impulse_bps.max(0.0);
         self.conditional_touch_max_edge_bps = max_edge_bps.max(0.0);
+        self
+    }
+
+    /// Dynamically enable the existing conditional-touch gate when recent spread capture turns bad.
+    pub fn with_dynamic_conditional_touch(
+        mut self,
+        enabled: bool,
+        ewma_alpha: f64,
+        min_fills: u32,
+        enter_bps: f64,
+        exit_bps: f64,
+    ) -> Self {
+        self.dynamic_conditional_touch_enabled = enabled;
+        self.dynamic_conditional_touch_ewma_alpha = ewma_alpha.clamp(1e-9, 1.0);
+        self.dynamic_conditional_touch_min_fills = min_fills.max(1);
+        self.dynamic_conditional_touch_enter_bps = enter_bps;
+        self.dynamic_conditional_touch_exit_bps = exit_bps;
         self
     }
 
@@ -1480,6 +1520,32 @@ impl RebateMMStrategy {
         }
     }
 
+    fn advance_dynamic_conditional_touch_state(&mut self) {
+        if !self.dynamic_conditional_touch_enabled {
+            return;
+        }
+        if self.dynamic_conditional_touch_fill_count < self.dynamic_conditional_touch_min_fills as u64 {
+            self.dynamic_conditional_touch_active = false;
+            return;
+        }
+        if let Some(ewma) = self.dynamic_conditional_touch_ewma {
+            let prev = self.dynamic_conditional_touch_active;
+            if self.dynamic_conditional_touch_active {
+                if ewma > self.dynamic_conditional_touch_exit_bps {
+                    self.dynamic_conditional_touch_active = false;
+                }
+            } else if ewma < self.dynamic_conditional_touch_enter_bps {
+                self.dynamic_conditional_touch_active = true;
+            }
+            if self.dynamic_conditional_touch_active != prev {
+                self.diag_dynamic_conditional_touch_transitions += 1;
+            }
+        }
+        if self.dynamic_conditional_touch_active {
+            self.diag_dynamic_conditional_touch_refreshes += 1;
+        }
+    }
+
     /// Passive depth from spread regime, capped by [`state_passive_max_depth_ticks`]. [`None`] = feature off → use heuristic [`passive_depth_ticks`].
     fn spread_regime_depth_ticks(&mut self, now: f64) -> Option<u32> {
         if !self.spread_depth_regime_enabled {
@@ -2031,6 +2097,9 @@ impl Strategy for RebateMMStrategy {
         if self.spread_toxicity_brake_enabled && warmed_up {
             self.advance_spread_toxicity_hysteresis();
         }
+        if self.dynamic_conditional_touch_enabled && warmed_up {
+            self.advance_dynamic_conditional_touch_state();
+        }
         let regime_depth_ticks = if warmed_up {
             self.spread_regime_depth_ticks(ts)
         } else {
@@ -2068,7 +2137,9 @@ impl Strategy for RebateMMStrategy {
             f64::INFINITY
         };
         let touch_brake_on = self.fill_touch_brake_enabled && ts < self.touch_brake_until_ts;
-        let conditional_touch_ok = !self.conditional_touch_join_enabled
+        let conditional_touch_active = self.conditional_touch_join_enabled
+            && (!self.dynamic_conditional_touch_enabled || self.dynamic_conditional_touch_active);
+        let conditional_touch_ok = !conditional_touch_active
             || (abs_impulse_quotes <= self.conditional_touch_max_impulse_bps
                 && abs_edge_for_touch <= self.conditional_touch_max_edge_bps);
         let mut use_touch_join = self.queue_join_touch_enabled
@@ -2138,7 +2209,6 @@ impl Strategy for RebateMMStrategy {
                 imbalance,
             )
         };
-
         let passive_depth_sample_path = self.state_passive_depth_enabled
             || self.spread_depth_regime_enabled
             || (self.spread_toxicity_brake_enabled && toxicity_forced_passive);
@@ -2341,7 +2411,6 @@ impl Strategy for RebateMMStrategy {
                     * Decimal::from_f64_retain(self.mid_regime_size_mult).unwrap_or(dec!(1));
             }
         }
-
         // Per-side size: optional impulse skew (Run 1) vs flat effective_base.
         let (bid_mult, ask_mult) = if self.impulse_size_skew_enabled && warmed_up {
             match signed_microprice_impulse_bps {
@@ -2497,7 +2566,18 @@ impl Strategy for RebateMMStrategy {
             });
             self.spread_toxicity_fill_count += 1;
         }
-
+        if self.dynamic_conditional_touch_enabled && mid > 0.0 && px > 0.0 {
+            let spread_bps_t = match fill.side {
+                OrderSide::Buy => (mid - px) / mid * 10_000.0,
+                OrderSide::Sell => (px - mid) / mid * 10_000.0,
+            };
+            let a_dct = self.dynamic_conditional_touch_ewma_alpha;
+            self.dynamic_conditional_touch_ewma = Some(match self.dynamic_conditional_touch_ewma {
+                Some(prev) => a_dct * spread_bps_t + (1.0 - a_dct) * prev,
+                None => spread_bps_t,
+            });
+            self.dynamic_conditional_touch_fill_count += 1;
+        }
         if self.spread_depth_regime_enabled && self.spread_depth_participation_floor_enabled {
             self.spread_depth_participation_fill_ts.push_back(fill.timestamp);
             while self.spread_depth_participation_fill_ts.len() > 50_000 {
@@ -2639,6 +2719,23 @@ impl Strategy for RebateMMStrategy {
                     self.conditional_touch_max_edge_bps,
                     self.diag_touch_join_fallback,
                 ));
+                if self.dynamic_conditional_touch_enabled {
+                    let ew = self
+                        .dynamic_conditional_touch_ewma
+                        .map(|x| format!("{:.4}", x))
+                        .unwrap_or_else(|| "n/a".to_string());
+                    out.push_str(&format!(
+                        "    dynamic toggle: ewma={} bps fills={} min_fills={} active={} enter_when_ewma_lt={:.3} exit_when_ewma_gt={:.3} active_refreshes={} transitions={}\n",
+                        ew,
+                        self.dynamic_conditional_touch_fill_count,
+                        self.dynamic_conditional_touch_min_fills,
+                        self.dynamic_conditional_touch_active,
+                        self.dynamic_conditional_touch_enter_bps,
+                        self.dynamic_conditional_touch_exit_bps,
+                        self.diag_dynamic_conditional_touch_refreshes,
+                        self.diag_dynamic_conditional_touch_transitions,
+                    ));
+                }
             }
             if self.fill_touch_brake_enabled {
                 out.push_str(&format!(
@@ -2990,6 +3087,24 @@ impl Strategy for RebateMMStrategy {
                 ));
             }
         }
+        if self.dynamic_conditional_touch_enabled {
+            let a = self.dynamic_conditional_touch_ewma_alpha;
+            if a <= 0.0 || a > 1.0 {
+                return Err(StrategyError::InvalidConfig(
+                    "dynamic_conditional_touch_ewma_alpha must be in (0, 1]".into(),
+                ));
+            }
+            if !self.conditional_touch_join_enabled {
+                return Err(StrategyError::InvalidConfig(
+                    "dynamic_conditional_touch_enabled requires conditional_touch_join_enabled".into(),
+                ));
+            }
+            if self.dynamic_conditional_touch_enter_bps >= self.dynamic_conditional_touch_exit_bps {
+                return Err(StrategyError::InvalidConfig(
+                    "dynamic conditional touch requires enter_bps < exit_bps (e.g. enter -0.30, exit -0.15)".into(),
+                ));
+            }
+        }
         if self.fill_touch_brake_enabled && self.fill_touch_brake_sec <= 0.0 {
             return Err(StrategyError::InvalidConfig(
                 "fill touch brake requires fill_touch_brake_sec > 0".into(),
@@ -3288,6 +3403,25 @@ impl RebateMMStrategy {
     pub(crate) fn test_push_participation_fill_ts(&mut self, ts: f64) {
         self.spread_depth_participation_fill_ts.push_back(ts);
     }
+
+    pub(crate) fn test_seed_dynamic_conditional_touch(
+        &mut self,
+        ewma: Option<f64>,
+        fill_count: u64,
+        active: bool,
+    ) {
+        self.dynamic_conditional_touch_ewma = ewma;
+        self.dynamic_conditional_touch_fill_count = fill_count;
+        self.dynamic_conditional_touch_active = active;
+    }
+
+    pub(crate) fn advance_dynamic_conditional_touch_state_for_test(&mut self) {
+        self.advance_dynamic_conditional_touch_state();
+    }
+
+    pub(crate) fn dynamic_conditional_touch_active_for_test(&self) -> bool {
+        self.dynamic_conditional_touch_active
+    }
 }
 
 #[cfg(test)]
@@ -3434,6 +3568,29 @@ mod tests {
             .with_state_dependent_multi_tick_passive(2)
             .with_spread_toxicity_brake(true, 0.02, 50, -0.7, -0.4, 0.65, 1);
         assert!(s.validate_config().is_ok());
+    }
+
+    #[test]
+    fn dynamic_conditional_touch_validate_requires_enter_below_exit() {
+        let bad = RebateMMStrategy::new(dec!(0.5), dec!(0.01))
+            .with_inventory_limits(dec!(10.0), dec!(10.0))
+            .with_conditional_touch_join(true, 0.4, 0.012)
+            .with_dynamic_conditional_touch(true, 0.02, 50, -0.15, -0.30);
+        assert!(bad.validate_config().is_err());
+    }
+
+    #[test]
+    fn dynamic_conditional_touch_enters_and_exits_with_hysteresis() {
+        let mut s = RebateMMStrategy::new(dec!(0.5), dec!(0.01))
+            .with_inventory_limits(dec!(10.0), dec!(10.0))
+            .with_conditional_touch_join(true, 0.4, 0.012)
+            .with_dynamic_conditional_touch(true, 0.02, 50, -0.30, -0.15);
+        s.test_seed_dynamic_conditional_touch(Some(-0.35), 100, false);
+        s.advance_dynamic_conditional_touch_state_for_test();
+        assert!(s.dynamic_conditional_touch_active_for_test());
+        s.test_seed_dynamic_conditional_touch(Some(-0.10), 100, true);
+        s.advance_dynamic_conditional_touch_state_for_test();
+        assert!(!s.dynamic_conditional_touch_active_for_test());
     }
 
     #[test]

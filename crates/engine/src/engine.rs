@@ -169,6 +169,11 @@ impl<S: Strategy> BacktestEngine<S> {
         self
     }
 
+    pub fn with_markout_enabled(mut self, enabled: bool) -> Self {
+        self.metrics = std::mem::take(&mut self.metrics).with_markout_enabled(enabled);
+        self
+    }
+
     fn order_submission_delay_secs(&self) -> Option<f64> {
         let delay_us = self.latency.as_ref()?.order_submission_us;
         if delay_us == 0 {
@@ -367,7 +372,9 @@ impl<S: Strategy> BacktestEngine<S> {
 
         self.apply_pending_cancels(timestamp);
         self.apply_pending_orders(timestamp, &core_snap);
-        self.metrics.process_markout_snapshot(timestamp, mid);
+        if self.metrics.markout_enabled() {
+            self.metrics.process_markout_snapshot(timestamp, mid);
+        }
 
         let fills = self.matcher.process_book_update(&core_snap);
         for fill in &fills {

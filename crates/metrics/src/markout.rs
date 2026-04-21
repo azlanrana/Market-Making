@@ -181,9 +181,8 @@ impl MarkoutTracker {
             return;
         }
 
-        let mut i = 0;
-        while i < self.pending.len() {
-            let p = &mut self.pending[i];
+        let mut still_pending = Vec::with_capacity(self.pending.len());
+        for mut p in std::mem::take(&mut self.pending) {
             for (idx, &horizon) in MARKOUT_HORIZONS.iter().enumerate() {
                 let bit = 1u8 << idx;
                 if (p.resolved & bit) == 0 && snapshot_ts >= p.fill_ts + horizon {
@@ -226,11 +225,12 @@ impl MarkoutTracker {
                 }
             }
             if p.resolved == 0b1111 || snapshot_ts >= p.fill_ts + MARKOUT_5S {
-                self.pending.remove(i);
+                continue;
             } else {
-                i += 1;
+                still_pending.push(p);
             }
         }
+        self.pending = still_pending;
     }
 
     /// Get stats for a horizon index (0=100ms, 1=500ms, 2=1s, 3=5s)
