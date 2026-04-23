@@ -1,15 +1,15 @@
-use crate::simulator::OrderBookSimulator;
-use crate::portfolio::BacktestPortfolio;
 use crate::latency::{LatencySimulator, DEFAULT_LATENCY_SEED};
 use crate::metrics::MetricsCollector;
+use crate::portfolio::BacktestPortfolio;
+use crate::simulator::OrderBookSimulator;
+use anyhow::Result;
 use data_loader::DataLoader;
-use mm_core::strategy::Strategy;
 use mm_core::strategy::OrderType;
+use mm_core::strategy::Strategy;
 use orderbook::order::{Order, OrderSide, OrderStatus};
 use orderbook::snapshot::OrderBookSnapshot;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use anyhow::Result;
 use std::collections::HashMap;
 
 /// Backtest Runner - processes CSV snapshots chronologically
@@ -41,11 +41,7 @@ impl<S: Strategy> BacktestRunner<S> {
         use_latency: bool,
         tick_size: Decimal,
     ) -> Self {
-        let portfolio = BacktestPortfolio::new(
-            Decimal::ZERO,
-            initial_capital,
-            initial_price,
-        );
+        let portfolio = BacktestPortfolio::new(Decimal::ZERO, initial_capital, initial_price);
 
         let latency = if use_latency {
             Some(LatencySimulator::new_with_seed(
@@ -96,7 +92,7 @@ impl<S: Strategy> BacktestRunner<S> {
             self.active_orders_by_layer.remove(&key);
         }
     }
-    
+
     fn track_order(&mut self, order_id: String, side: OrderSide, layer: u32) {
         self.active_orders_by_layer
             .entry((side, layer))
@@ -172,7 +168,7 @@ impl<S: Strategy> BacktestRunner<S> {
 
     pub async fn run<D: DataLoader>(&mut self, data_loader: D) -> Result<BacktestResults> {
         let snapshots_iter = data_loader.load_snapshots()?;
-        
+
         let mut pending_orders: Vec<(Order, f64)> = Vec::new(); // (order, effective_timestamp)
         let mut last_mid_price = Decimal::ZERO;
         let mut last_timestamp = 0.0;
@@ -202,8 +198,14 @@ impl<S: Strategy> BacktestRunner<S> {
                     let order_id = active_order.order_id.clone();
                     let side = active_order.side;
                     let layer = active_order.layer;
-                    let market_queue = Self::market_queue_at_price(&snapshot, active_order.price, side, self.tick_size);
-                    self.simulator.add_order_with_market_queue(active_order, market_queue);
+                    let market_queue = Self::market_queue_at_price(
+                        &snapshot,
+                        active_order.price,
+                        side,
+                        self.tick_size,
+                    );
+                    self.simulator
+                        .add_order_with_market_queue(active_order, market_queue);
                     self.track_order(order_id, side, layer);
                     false // Remove from pending
                 } else {
@@ -225,7 +227,8 @@ impl<S: Strategy> BacktestRunner<S> {
             for fill in fills {
                 let order = self.simulator.get_order(&fill.order_id).cloned();
                 if let Some(order) = order {
-                    let fees = fill.fill_price * fill.filled_amount * self.maker_fee_bps / dec!(10000);
+                    let fees =
+                        fill.fill_price * fill.filled_amount * self.maker_fee_bps / dec!(10000);
                     let prev_realized = self.portfolio.get_realized_pnl();
 
                     self.portfolio.add_trade(
@@ -252,31 +255,46 @@ impl<S: Strategy> BacktestRunner<S> {
                         layer: order.layer,
                     };
 
-                    self.strategy.on_fill(
-                        &fill_event,
-                        &mut portfolio_for_strategy,
+                    self.strategy
+                        .on_fill(&fill_event, &mut portfolio_for_strategy, fill.timestamp);
+
+                    self.metrics.record_fill_with_ts(
+                        order.side,
+                        order.layer,
+                        fill.filled_amount,
+                        fill.fill_price,
+                        fees,
                         fill.timestamp,
                     );
-
-                    self.metrics.record_fill_with_ts(order.side, order.layer, fill.filled_amount, fill.fill_price, fees, fill.timestamp);
-                    self.metrics.record_fill_forensic(fill.fill_price, snapshot.mid_price, order.side, fill.timestamp);
+                    self.metrics.record_fill_forensic(
+                        fill.fill_price,
+                        snapshot.mid_price,
+                        order.side,
+                        fill.timestamp,
+                    );
 
                     let new_realized = self.portfolio.get_realized_pnl();
                     let trade_pnl = new_realized - prev_realized;
 
                     // Accumulate PnL by order; only count win/loss when order fully filled (round-trip)
-                    *self.trade_pnl_by_order
+                    *self
+                        .trade_pnl_by_order
                         .entry(fill.order_id.clone())
                         .or_insert(Decimal::ZERO) += trade_pnl;
-                    self.metrics.record_trade_pnl_delta(trade_pnl, order.layer, fill.timestamp);
+                    self.metrics
+                        .record_trade_pnl_delta(trade_pnl, order.layer, fill.timestamp);
 
                     if order.status == OrderStatus::Filled {
-                        let round_trip_pnl = self.trade_pnl_by_order
+                        let round_trip_pnl = self
+                            .trade_pnl_by_order
                             .remove(&fill.order_id)
                             .unwrap_or(Decimal::ZERO);
-                        self.metrics.record_round_trip_pnl(round_trip_pnl, fill.timestamp);
+                        self.metrics
+                            .record_round_trip_pnl(round_trip_pnl, fill.timestamp);
                         // Remove filled order from tracking so we don't try to cancel it later
-                        if let Some(active_orders) = self.active_orders_by_layer.get_mut(&(order.side, layer)) {
+                        if let Some(active_orders) =
+                            self.active_orders_by_layer.get_mut(&(order.side, layer))
+                        {
                             active_orders.retain(|id: &String| id != &fill.order_id);
                         }
                     }
@@ -323,11 +341,8 @@ impl<S: Strategy> BacktestRunner<S> {
                         mm_core::market_data::OrderSide::Buy => OrderSide::Buy,
                         mm_core::market_data::OrderSide::Sell => OrderSide::Sell,
                     };
-                    let partial_fills = Self::fill_market_with_slippage(
-                        &snapshot,
-                        order_side,
-                        intent.amount,
-                    );
+                    let partial_fills =
+                        Self::fill_market_with_slippage(&snapshot, order_side, intent.amount);
 
                     let mut total_fees = Decimal::ZERO;
                     let prev_realized = self.portfolio.get_realized_pnl();
@@ -361,7 +376,8 @@ impl<S: Strategy> BacktestRunner<S> {
                             self.portfolio.get_quote_balance(),
                         );
                         portfolio_for_strategy.realized_pnl = self.portfolio.get_realized_pnl();
-                        self.strategy.on_fill(&fill_event, &mut portfolio_for_strategy, timestamp);
+                        self.strategy
+                            .on_fill(&fill_event, &mut portfolio_for_strategy, timestamp);
 
                         self.metrics.record_fill_with_ts(
                             order_side,
@@ -374,7 +390,8 @@ impl<S: Strategy> BacktestRunner<S> {
                     }
 
                     let trade_pnl = self.portfolio.get_realized_pnl() - prev_realized;
-                    self.metrics.record_trade_pnl_by_day(trade_pnl, intent.layer, timestamp);
+                    self.metrics
+                        .record_trade_pnl_by_day(trade_pnl, intent.layer, timestamp);
                     continue;
                 }
 
@@ -403,8 +420,14 @@ impl<S: Strategy> BacktestRunner<S> {
                 };
 
                 if placement_timestamp <= timestamp {
-                    let market_queue = Self::market_queue_at_price(&snapshot, order.price, order.side, self.tick_size);
-                    self.simulator.add_order_with_market_queue(order, market_queue);
+                    let market_queue = Self::market_queue_at_price(
+                        &snapshot,
+                        order.price,
+                        order.side,
+                        self.tick_size,
+                    );
+                    self.simulator
+                        .add_order_with_market_queue(order, market_queue);
                     self.track_order(order_id, side, layer);
                 } else {
                     pending_orders.push((order, placement_timestamp));
@@ -413,17 +436,19 @@ impl<S: Strategy> BacktestRunner<S> {
 
             // Record portfolio snapshot periodically (every 5000 snapshots to reduce memory and improve performance)
             if snapshot_count % 5000 == 0 {
-                let portfolio_snapshot = self.portfolio.mark_to_market(timestamp, snapshot.mid_price);
+                let portfolio_snapshot =
+                    self.portfolio.mark_to_market(timestamp, snapshot.mid_price);
                 self.metrics.record_snapshot(portfolio_snapshot);
             }
         }
 
         // Record final snapshot
         if snapshot_count > 0 {
-            let portfolio_snapshot = self.portfolio.mark_to_market(last_timestamp, last_mid_price);
+            let portfolio_snapshot = self
+                .portfolio
+                .mark_to_market(last_timestamp, last_mid_price);
             self.metrics.record_snapshot(portfolio_snapshot);
         }
-
 
         let stats = self.metrics.get_final_stats(&self.portfolio);
         let simulator_stats = self.simulator.get_statistics();

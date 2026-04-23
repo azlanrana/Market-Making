@@ -29,22 +29,22 @@
 //!   inventory_stop_pct:   tighter = less drawdown, more taker costs
 //!   filled_order_delay:   longer = wait for mean reversion, fewer fills
 
-use mm_core::strategy::{Fill, OrderIntent, OrderType, Strategy, StrategyError};
+use chrono::TimeZone;
 use mm_core::market_data::{OrderBook, OrderSide};
+use mm_core::strategy::{Fill, OrderIntent, OrderType, Strategy, StrategyError};
 use mm_core::Portfolio;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::VecDeque;
-use chrono::TimeZone;
 
 pub struct QueueFarmerStrategy {
     // --- Core config ---
     order_amount: Decimal,
     #[allow(dead_code)] // Stored for config; fee applied by backtest runner
     maker_rebate_bps: f64,
-    live_spread_bps: f64,      // What you actually post live (e.g. 2.0)
-    backtest_spread_bps: f64,  // Sim fill-rate calibration (3.5 → ~500-2000 fills/day; if low try 2.5)
+    live_spread_bps: f64,     // What you actually post live (e.g. 2.0)
+    backtest_spread_bps: f64, // Sim fill-rate calibration (3.5 → ~500-2000 fills/day; if low try 2.5)
     is_backtest: bool,
     skew_sensitivity: f64,
     max_skew_bps: f64,
@@ -189,8 +189,8 @@ impl QueueFarmerStrategy {
         }
 
         let mean = returns.iter().sum::<f64>() / returns.len() as f64;
-        let variance = returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>()
-            / returns.len() as f64;
+        let variance =
+            returns.iter().map(|r| (r - mean).powi(2)).sum::<f64>() / returns.len() as f64;
         self.current_vol_bps = variance.sqrt() * 10000.0;
     }
 
@@ -444,8 +444,8 @@ impl Strategy for QueueFarmerStrategy {
         // Shift both quotes toward reducing position.
         // Long: shift DOWN (discourage more buys, encourage sells)
         // Short: shift UP (encourage buys, discourage sells)
-        let skew_bps =
-            ((inv - 0.5) * self.skew_sensitivity * 100.0).clamp(-self.max_skew_bps, self.max_skew_bps);
+        let skew_bps = ((inv - 0.5) * self.skew_sensitivity * 100.0)
+            .clamp(-self.max_skew_bps, self.max_skew_bps);
         let skew_dec = Decimal::from_f64_retain(skew_bps / 10000.0).unwrap_or(Decimal::ZERO);
 
         // Effective mid: micro-price shifted by inventory lean
@@ -517,13 +517,19 @@ impl Strategy for QueueFarmerStrategy {
 
     fn validate_config(&self) -> Result<(), StrategyError> {
         if self.order_amount <= Decimal::ZERO {
-            return Err(StrategyError::InvalidConfig("order_amount must be > 0".into()));
+            return Err(StrategyError::InvalidConfig(
+                "order_amount must be > 0".into(),
+            ));
         }
         if self.live_spread_bps <= 0.0 {
-            return Err(StrategyError::InvalidConfig("live_spread_bps must be > 0".into()));
+            return Err(StrategyError::InvalidConfig(
+                "live_spread_bps must be > 0".into(),
+            ));
         }
         if self.backtest_spread_bps <= 0.0 {
-            return Err(StrategyError::InvalidConfig("backtest_spread_bps must be > 0".into()));
+            return Err(StrategyError::InvalidConfig(
+                "backtest_spread_bps must be > 0".into(),
+            ));
         }
         if self.inventory_stop_pct <= 0.5 || self.inventory_stop_pct >= 1.0 {
             return Err(StrategyError::InvalidConfig(

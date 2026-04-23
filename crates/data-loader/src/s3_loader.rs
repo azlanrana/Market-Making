@@ -1,32 +1,28 @@
 use crate::loader::DataLoader;
 use crate::sftp_loader::SnapshotRow;
-use orderbook::snapshot::OrderBookSnapshot;
-use rust_decimal::Decimal;
 use anyhow::{Context, Result};
-use chrono::NaiveDate;
-use flate2::read::GzDecoder;
-use std::io::BufReader;
-use std::io::prelude::*;
-use std::sync::{Arc, Mutex, mpsc};
-use std::thread;
-use lru::LruCache;
-use std::num::NonZeroUsize;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client as S3Client;
+use chrono::NaiveDate;
+use flate2::read::GzDecoder;
+use lru::LruCache;
+use orderbook::snapshot::OrderBookSnapshot;
+use rust_decimal::Decimal;
+use std::io::prelude::*;
+use std::io::BufReader;
+use std::num::NonZeroUsize;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
 
 /// Optional inclusive calendar range on object keys. Set both `S3_START_DATE` and `S3_END_DATE`
 /// to `YYYY-MM-DD`, or set neither. Keys that do not contain a valid `/YYYY/MM/DD/` path segment
 /// triplet are **kept** (so odd layouts still load).
 pub fn parse_s3_inclusive_date_range_from_env() -> Result<Option<(NaiveDate, NaiveDate)>> {
-    match (
-        std::env::var("S3_START_DATE"),
-        std::env::var("S3_END_DATE"),
-    ) {
+    match (std::env::var("S3_START_DATE"), std::env::var("S3_END_DATE")) {
         (Err(_), Err(_)) => Ok(None),
         (Ok(start_s), Ok(end_s)) => {
-            let start = NaiveDate::parse_from_str(&start_s.trim(), "%Y-%m-%d").with_context(|| {
-                format!("S3_START_DATE={start_s:?} (expected YYYY-MM-DD)")
-            })?;
+            let start = NaiveDate::parse_from_str(&start_s.trim(), "%Y-%m-%d")
+                .with_context(|| format!("S3_START_DATE={start_s:?} (expected YYYY-MM-DD)"))?;
             let end = NaiveDate::parse_from_str(&end_s.trim(), "%Y-%m-%d")
                 .with_context(|| format!("S3_END_DATE={end_s:?} (expected YYYY-MM-DD)"))?;
             if end < start {
@@ -62,7 +58,7 @@ fn try_parse_yyyymmdd_triplet(y: &str, m: &str, d: &str) -> Option<NaiveDate> {
 }
 
 /// S3 loader for orderbook snapshot history stored in AWS S3
-/// 
+///
 /// Downloads compressed orderbook snapshots from S3, decompresses and parses them
 /// Folder structure in S3: bucket/prefix/yyyy/mm/dd/filename.gz
 pub struct S3Loader {
@@ -81,7 +77,7 @@ pub struct S3Loader {
 
 impl S3Loader {
     /// Create a new S3 loader
-    /// 
+    ///
     /// # Arguments
     /// * `bucket` - S3 bucket name
     /// * `prefix` - S3 prefix/path (e.g., "backtest-data/2023/10/25/")
@@ -97,9 +93,9 @@ impl S3Loader {
             .region(aws_sdk_s3::config::Region::new(region.clone()))
             .load()
             .await;
-        
+
         let s3_client = S3Client::new(&config);
-        
+
         Ok(Self {
             s3_client: Arc::new(s3_client),
             bucket,
@@ -111,13 +107,13 @@ impl S3Loader {
             key_date_range: None,
         })
     }
-    
+
     /// Only load files whose S3 key contains /cdc/{pair}/. Filters out wrong-pair data (e.g. BTC_USDT under ETH prefix).
     pub fn with_pair_filter(mut self, pair: impl Into<String>) -> Self {
         self.pair_filter = Some(pair.into());
         self
     }
-    
+
     /// Cap how many objects to list (after pair + optional date filters). `None` = no cap.
     pub fn with_max_files(mut self, max_files: Option<usize>) -> Self {
         self.max_files = max_files;
@@ -129,16 +125,13 @@ impl S3Loader {
         self.key_date_range = range;
         self
     }
-    
+
     /// List `.gz` keys under `prefix` in **S3 lexicographic order** (same as `list_objects_v2` order).
     /// Optional `/cdc/{pair}/` filter. If `max_take` is set, **stop paginating** once that many keys
     /// pass the filter — avoids listing the entire prefix when only the first N files are needed
     /// (equivalent to list-all → filter → sort → take(N), since S3 order is already sorted).
     async fn list_gz_keys_limited(&self, max_take: Option<usize>) -> Result<Vec<String>> {
-        let pattern = self
-            .pair_filter
-            .as_ref()
-            .map(|p| format!("/cdc/{}/", p));
+        let pattern = self.pair_filter.as_ref().map(|p| format!("/cdc/{}/", p));
         let mut keys = Vec::new();
         let mut continuation_token = None;
 
@@ -153,10 +146,12 @@ impl S3Loader {
                 request = request.continuation_token(token);
             }
 
-            let response = request
-                .send()
-                .await
-                .with_context(|| format!("Failed to list objects in s3://{}/{}", self.bucket, self.prefix))?;
+            let response = request.send().await.with_context(|| {
+                format!(
+                    "Failed to list objects in s3://{}/{}",
+                    self.bucket, self.prefix
+                )
+            })?;
 
             for object in response.contents() {
                 let Some(key) = object.key() else {
@@ -220,50 +215,55 @@ impl S3Loader {
     /// Parse snapshot data (reuse logic from SftpLoader)
     fn parse_snapshot_data(&self, data: &[u8]) -> Result<Vec<OrderBookSnapshot>> {
         let mut snapshots = Vec::new();
-        
+
         let first_bytes = if data.len() > 100 { &data[..100] } else { data };
         let is_json = first_bytes.starts_with(b"{") || first_bytes.starts_with(b"[");
         let is_text = std::str::from_utf8(first_bytes).is_ok();
-        
+
         if is_text || is_json {
             let text = std::str::from_utf8(data)?;
             let reader = BufReader::new(text.as_bytes());
-            
+
             for (line_num, line_result) in reader.lines().enumerate() {
                 let line = line_result?;
                 if line.trim().is_empty() {
                     continue;
                 }
-                
+
                 if let Ok(row) = serde_json::from_str::<SnapshotRow>(&line) {
-                    let timestamp_ms = row.t
-                        .or(row.timestamp)
-                        .or(row.ts)
-                        .or(row.time)
-                        .ok_or_else(|| anyhow::anyhow!("Missing timestamp at line {}", line_num + 1))?;
-                    
+                    let timestamp_ms =
+                        row.t
+                            .or(row.timestamp)
+                            .or(row.ts)
+                            .or(row.time)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!("Missing timestamp at line {}", line_num + 1)
+                            })?;
+
                     let timestamp = timestamp_ms as f64 / 1000.0;
                     let bids = row.b.as_deref().unwrap_or(&[]);
                     let asks = row.a.as_deref().unwrap_or(&[]);
-                    
+
                     if bids.is_empty() && asks.is_empty() {
                         continue;
                     }
-                    
-                    let best_bid = bids.iter()
+
+                    let best_bid = bids
+                        .iter()
                         .filter_map(|level: &Vec<f64>| level.get(0).copied())
                         .fold(f64::NEG_INFINITY, f64::max);
-                    
-                    let best_ask = asks.iter()
+
+                    let best_ask = asks
+                        .iter()
                         .filter_map(|level: &Vec<f64>| level.get(0).copied())
                         .fold(f64::INFINITY, f64::min);
-                    
+
                     if best_bid == f64::NEG_INFINITY || best_ask == f64::INFINITY {
                         continue;
                     }
-                    
+
                     let mid_price = (best_bid + best_ask) / 2.0;
-                    
+
                     let snapshot = OrderBookSnapshot::from_price_levels(
                         timestamp,
                         Decimal::from_f64_retain(mid_price).unwrap(),
@@ -272,25 +272,31 @@ impl S3Loader {
                         bids.to_vec(),
                         asks.to_vec(),
                     )
-                    .map_err(|e| anyhow::anyhow!("Failed to parse snapshot at line {}: {}", line_num + 1, e))?;
-                    
+                    .map_err(|e| {
+                        anyhow::anyhow!("Failed to parse snapshot at line {}: {}", line_num + 1, e)
+                    })?;
+
                     snapshots.push(snapshot);
                 } else {
                     // Try CSV format
                     let parts: Vec<&str> = line.split(',').collect();
                     if parts.len() >= 12 {
-                        let timestamp: f64 = parts[0].parse()
-                            .with_context(|| format!("Invalid timestamp at line {}", line_num + 1))?;
-                        let mid_price: f64 = parts[1].parse()
-                            .with_context(|| format!("Invalid mid_price at line {}", line_num + 1))?;
-                        let best_bid: f64 = parts[2].parse()
-                            .with_context(|| format!("Invalid best_bid at line {}", line_num + 1))?;
-                        let best_ask: f64 = parts[3].parse()
-                            .with_context(|| format!("Invalid best_ask at line {}", line_num + 1))?;
-                        
+                        let timestamp: f64 = parts[0].parse().with_context(|| {
+                            format!("Invalid timestamp at line {}", line_num + 1)
+                        })?;
+                        let mid_price: f64 = parts[1].parse().with_context(|| {
+                            format!("Invalid mid_price at line {}", line_num + 1)
+                        })?;
+                        let best_bid: f64 = parts[2].parse().with_context(|| {
+                            format!("Invalid best_bid at line {}", line_num + 1)
+                        })?;
+                        let best_ask: f64 = parts[3].parse().with_context(|| {
+                            format!("Invalid best_ask at line {}", line_num + 1)
+                        })?;
+
                         let bids_json = parts.get(10).unwrap_or(&"[]");
                         let asks_json = parts.get(11).unwrap_or(&"[]");
-                        
+
                         let snapshot = OrderBookSnapshot::from_csv_row(
                             timestamp,
                             Decimal::from_f64_retain(mid_price).unwrap(),
@@ -300,16 +306,16 @@ impl S3Loader {
                             asks_json,
                         )
                         .map_err(|e| anyhow::anyhow!("Failed to parse snapshot: {}", e))?;
-                        
+
                         snapshots.push(snapshot);
                     }
                 }
             }
         }
-        
+
         Ok(snapshots)
     }
-    
+
     /// Download and parse worker (async version that gets converted to sync)
     async fn download_and_parse_worker_async(
         s3_client: Arc<S3Client>,
@@ -325,7 +331,7 @@ impl S3Loader {
             .strip_suffix(".gz")
             .unwrap_or(&key)
             .to_string();
-        
+
         // Check cache first
         if let Some(ref cache) = cache {
             let mut cache_guard = cache.lock().unwrap();
@@ -333,7 +339,7 @@ impl S3Loader {
                 return Ok(cached_snapshots.clone());
             }
         }
-        
+
         // Download and decompress
         let response = s3_client
             .get_object()
@@ -342,26 +348,27 @@ impl S3Loader {
             .send()
             .await
             .with_context(|| format!("Failed to download s3://{}/{}", bucket, key))?;
-        
+
         let mut compressed_data = Vec::new();
         let mut body = response.body;
-        
+
         while let Some(chunk) = body.next().await {
             let chunk = chunk.context("Failed to read S3 object chunk")?;
             compressed_data.extend_from_slice(&chunk);
         }
-        
+
         // Decompress
         let decompressed = if key.ends_with(".gz") {
             let mut decoder = GzDecoder::new(compressed_data.as_slice());
             let mut data = Vec::new();
-            decoder.read_to_end(&mut data)
+            decoder
+                .read_to_end(&mut data)
                 .with_context(|| "Failed to decompress file")?;
             data
         } else {
             compressed_data
         };
-        
+
         // Parse (create temporary loader for parsing)
         let temp_loader = S3Loader {
             s3_client: Arc::clone(&s3_client),
@@ -373,16 +380,17 @@ impl S3Loader {
             pair_filter: None,
             key_date_range: None,
         };
-        
-        let snapshots = temp_loader.parse_snapshot_data(&decompressed)
+
+        let snapshots = temp_loader
+            .parse_snapshot_data(&decompressed)
             .with_context(|| format!("Failed to parse file: {}", key))?;
-        
+
         // Cache parsed snapshots
         if let Some(ref cache) = cache {
             let mut cache_guard = cache.lock().unwrap();
             cache_guard.put(cache_key, snapshots.clone());
         }
-        
+
         Ok(snapshots)
     }
 }
@@ -390,7 +398,7 @@ impl S3Loader {
 impl DataLoader for S3Loader {
     fn load_snapshots(&self) -> Result<Box<dyn Iterator<Item = Result<OrderBookSnapshot>> + Send>> {
         let (sender, receiver) = mpsc::sync_channel(100000);
-        
+
         let s3_client = Arc::clone(&self.s3_client);
         let bucket = self.bucket.clone();
         let prefix = self.prefix.clone();
@@ -398,23 +406,26 @@ impl DataLoader for S3Loader {
         let max_concurrent_downloads = self.max_concurrent_downloads;
         let pair_filter = self.pair_filter.clone();
         let key_date_range = self.key_date_range;
-        
+
         // Create LRU cache for parsed snapshots
         let cache_size = NonZeroUsize::new(1000).unwrap();
-        let cache: Arc<Mutex<LruCache<String, Vec<OrderBookSnapshot>>>> = 
+        let cache: Arc<Mutex<LruCache<String, Vec<OrderBookSnapshot>>>> =
             Arc::new(Mutex::new(LruCache::new(cache_size)));
-        
+
         // Create a single runtime for this thread
         thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
                 Err(e) => {
                     eprintln!("Failed to create tokio runtime: {}", e);
-                    let _ = sender.send(Err(anyhow::anyhow!("Failed to create tokio runtime: {}", e)));
+                    let _ = sender.send(Err(anyhow::anyhow!(
+                        "Failed to create tokio runtime: {}",
+                        e
+                    )));
                     return;
                 }
             };
-            
+
             let result = rt.block_on(async {
                 println!("Connecting to S3 to get file list...");
                 let loader = S3Loader {
@@ -427,7 +438,7 @@ impl DataLoader for S3Loader {
                     pair_filter: pair_filter.clone(),
                     key_date_range,
                 };
-                
+
                 let files_to_process = loader.list_gz_keys_limited(max_files).await?;
 
                 if files_to_process.is_empty() {
@@ -436,20 +447,24 @@ impl DataLoader for S3Loader {
 
                 // Cap parallel S3 downloads (env), upper bound avoids huge connection bursts.
                 let batch_size = max_concurrent_downloads.max(1).min(512);
-                println!("Streaming {} files from S3 (parallel batches of {})...",
-                    files_to_process.len(), batch_size);
-                
+                println!(
+                    "Streaming {} files from S3 (parallel batches of {})...",
+                    files_to_process.len(),
+                    batch_size
+                );
+
                 let total = files_to_process.len();
                 let progress = Arc::new(Mutex::new(0));
                 let sender_clone = sender.clone();
-                
+
                 // Process files in parallel batches for faster loading
                 for chunk_start in (0..total).step_by(batch_size) {
                     let chunk_end = (chunk_start + batch_size).min(total);
                     let keys: Vec<String> = files_to_process[chunk_start..chunk_end].to_vec();
-                    
+
                     // Download and parse all files in this batch in parallel
-                    let tasks: Vec<_> = keys.iter()
+                    let tasks: Vec<_> = keys
+                        .iter()
                         .map(|key| {
                             let s3 = Arc::clone(&s3_client);
                             let b = bucket.clone();
@@ -458,9 +473,9 @@ impl DataLoader for S3Loader {
                             tokio::spawn(Self::download_and_parse_worker_async(s3, b, k, Some(c)))
                         })
                         .collect();
-                    
+
                     let results = futures::future::join_all(tasks).await;
-                    
+
                     for (j, result) in results.into_iter().enumerate() {
                         let snapshots = match result {
                             Ok(Ok(s)) => s,
@@ -479,17 +494,22 @@ impl DataLoader for S3Loader {
                             }
                         }
                     }
-                    
+
                     let mut prog = progress.lock().unwrap();
                     *prog += chunk_end - chunk_start;
                     if *prog % 100 == 0 || *prog == total {
-                        println!("Processed {}/{} files ({:.1}%)", *prog, total, (*prog as f64 / total as f64) * 100.0);
+                        println!(
+                            "Processed {}/{} files ({:.1}%)",
+                            *prog,
+                            total,
+                            (*prog as f64 / total as f64) * 100.0
+                        );
                     }
                 }
-                
+
                 Ok::<(), anyhow::Error>(())
             });
-            
+
             match result {
                 Ok(_) => {}
                 Err(e) => {
@@ -498,7 +518,7 @@ impl DataLoader for S3Loader {
                 }
             }
         });
-        
+
         Ok(Box::new(receiver.into_iter()))
     }
 }
@@ -525,4 +545,3 @@ mod tests {
         );
     }
 }
-

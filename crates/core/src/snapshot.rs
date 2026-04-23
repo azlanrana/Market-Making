@@ -1,5 +1,5 @@
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 
 #[derive(Debug, Clone)]
 pub struct OrderBookSnapshot {
@@ -9,8 +9,16 @@ pub struct OrderBookSnapshot {
 }
 
 impl OrderBookSnapshot {
-    pub fn new(timestamp: f64, bids: Vec<(Decimal, Decimal)>, asks: Vec<(Decimal, Decimal)>) -> Self {
-        Self { timestamp, bids, asks }
+    pub fn new(
+        timestamp: f64,
+        bids: Vec<(Decimal, Decimal)>,
+        asks: Vec<(Decimal, Decimal)>,
+    ) -> Self {
+        Self {
+            timestamp,
+            bids,
+            asks,
+        }
     }
 
     pub fn mid_price(&self) -> Option<Decimal> {
@@ -33,6 +41,10 @@ impl OrderBookSnapshot {
         if mid.is_zero() {
             return None;
         }
-        Some((spread / mid * Decimal::from(10000)).to_f64().unwrap_or(0.0))
+        Some(
+            (spread / mid * Decimal::from(10000))
+                .to_f64()
+                .unwrap_or(0.0),
+        )
     }
 }

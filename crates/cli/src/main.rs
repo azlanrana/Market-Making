@@ -1,10 +1,10 @@
-mod sftp_key;
-mod sftp_to_s3;
 mod check_dates;
 mod live_paper;
+mod sftp_key;
+mod sftp_to_s3;
 
-use clap::{Parser, Subcommand};
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "mm-cli")]
@@ -21,19 +21,27 @@ enum Commands {
         /// SFTP username
         #[arg(long, env = "CRYPTO_COM_SFTP_USERNAME", default_value = "user080")]
         sftp_username: String,
-        
+
         /// Path to SFTP private key
-        #[arg(long, env = "CRYPTO_COM_SFTP_KEY_PATH", default_value = "./user080 (1) 2")]
+        #[arg(
+            long,
+            env = "CRYPTO_COM_SFTP_KEY_PATH",
+            default_value = "./user080 (1) 2"
+        )]
         sftp_key_path: String,
-        
+
         /// Base SFTP path
-        #[arg(long, env = "CRYPTO_COM_SFTP_REMOTE_PATH", default_value = "exchange/book_l2_150_0010")]
+        #[arg(
+            long,
+            env = "CRYPTO_COM_SFTP_REMOTE_PATH",
+            default_value = "exchange/book_l2_150_0010"
+        )]
         sftp_base_path: String,
-        
+
         /// Trading pair to check
         #[arg(long, env = "TRADING_PAIR", default_value = "BTC_USDT")]
         trading_pair: String,
-        
+
         /// Year to check (e.g. 2025) or "all" for all available years
         #[arg(long, default_value = "2025")]
         year: String,
@@ -43,39 +51,47 @@ enum Commands {
         /// SFTP username
         #[arg(long, env = "CRYPTO_COM_SFTP_USERNAME", default_value = "user080")]
         sftp_username: String,
-        
+
         /// Path to SFTP private key
-        #[arg(long, env = "CRYPTO_COM_SFTP_KEY_PATH", default_value = "./user080 (1) 2")]
+        #[arg(
+            long,
+            env = "CRYPTO_COM_SFTP_KEY_PATH",
+            default_value = "./user080 (1) 2"
+        )]
         sftp_key_path: String,
-        
+
         /// SFTP remote path (base path, date will be appended)
-        #[arg(long, env = "CRYPTO_COM_SFTP_REMOTE_PATH", default_value = "exchange/book_l2_150_0010/2023/10/25/cdc/BTC_USDT")]
+        #[arg(
+            long,
+            env = "CRYPTO_COM_SFTP_REMOTE_PATH",
+            default_value = "exchange/book_l2_150_0010/2023/10/25/cdc/BTC_USDT"
+        )]
         sftp_remote_path: String,
-        
+
         /// S3 bucket name
         #[arg(long, env = "S3_BUCKET")]
         s3_bucket: String,
-        
+
         /// S3 prefix/path
         #[arg(long, env = "S3_PREFIX", default_value = "BTC_USDT/")]
         s3_prefix: String,
-        
+
         /// AWS region
         #[arg(long, env = "AWS_REGION", default_value = "us-east-1")]
         s3_region: String,
-        
+
         /// Start date (YYYY-MM-DD)
         #[arg(long, default_value = "2023-10-25")]
         start_date: String,
-        
+
         /// End date (YYYY-MM-DD)
         #[arg(long, default_value = "2023-10-31")]
         end_date: String,
-        
+
         /// Trading pair (e.g., BTC_USDT)
         #[arg(long, env = "TRADING_PAIR", default_value = "BTC_USDT")]
         trading_pair: String,
-        
+
         /// Maximum concurrent SFTP download workers (default: 20)
         #[arg(long, env = "MAX_CONCURRENT_UPLOADS")]
         max_concurrent: Option<usize>,
@@ -83,7 +99,7 @@ enum Commands {
         /// Maximum concurrent S3 PutObject calls (default: 64)
         #[arg(long, env = "MAX_S3_CONCURRENT_UPLOADS")]
         max_s3_concurrent: Option<usize>,
-        
+
         /// Skip checking if files already exist in S3 (faster for first-time uploads)
         #[arg(long, default_value = "false")]
         skip_s3_check: bool,
@@ -176,7 +192,8 @@ async fn main() -> Result<()> {
                 max_concurrent,
                 max_s3_concurrent,
                 skip_s3_check,
-            ).await?;
+            )
+            .await?;
         }
         Commands::LivePaper {
             trading_pair,
@@ -193,10 +210,10 @@ async fn main() -> Result<()> {
                 queue_depth_pct,
                 latency_profile,
                 record_trades_dir: record_trades_dir.map(Into::into),
-            }).await?;
+            })
+            .await?;
         }
     }
 
     Ok(())
 }
-

@@ -13,7 +13,7 @@ pub enum LatencyType {
 
 #[derive(Debug, Clone)]
 pub struct LatencyConfig {
-    pub decision_ms: (f64, f64),      // (min, max) in milliseconds
+    pub decision_ms: (f64, f64), // (min, max) in milliseconds
     pub placement_ms: (f64, f64),
     pub cancel_ms: (f64, f64),
     pub market_update_ms: (f64, f64),
@@ -39,7 +39,7 @@ impl Default for LatencyConfig {
 }
 
 /// Latency Simulator for realistic backtesting
-/// 
+///
 /// Simulates network and exchange latency delays:
 /// - Decision latency (time to decide to place order)
 /// - Placement latency (time for order to reach exchange)
@@ -80,13 +80,16 @@ impl LatencySimulator {
                 let r = (self.seed >> 16) as f64 / 65536.0;
                 min_ms + (max_ms - min_ms) * r
             }
-            DistributionType::Normal { mean_pct, std_dev_pct } => {
+            DistributionType::Normal {
+                mean_pct,
+                std_dev_pct,
+            } => {
                 // Box-Muller transform for normal distribution
                 self.seed = self.seed.wrapping_mul(1103515245).wrapping_add(12345);
                 let u1 = (self.seed >> 16) as f64 / 65536.0;
                 self.seed = self.seed.wrapping_mul(1103515245).wrapping_add(12345);
                 let u2 = (self.seed >> 16) as f64 / 65536.0;
-                
+
                 let z = (-2.0 * (1.0 - u1).ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos();
                 let mean = min_ms + (max_ms - min_ms) * mean_pct;
                 let std_dev = (max_ms - min_ms) * std_dev_pct;

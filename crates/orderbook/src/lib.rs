@@ -1,5 +1,5 @@
 pub mod order;
 pub mod snapshot;
 
-pub use order::{Order, OrderStatus, OrderSide};
+pub use order::{Order, OrderSide, OrderStatus};
 pub use snapshot::OrderBookSnapshot;

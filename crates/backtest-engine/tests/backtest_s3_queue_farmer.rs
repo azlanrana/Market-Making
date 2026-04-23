@@ -7,8 +7,8 @@
 //! Set TRADING_PAIR=ETH_USDT to run on ETH. Set S3_BUCKET for S3 data.
 
 use backtest_engine::BacktestRunner;
-use queue_farmer::QueueFarmerStrategy;
 use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
+use queue_farmer::QueueFarmerStrategy;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::Deserialize;
@@ -69,15 +69,11 @@ async fn backtest_s3_queue_farmer() {
     println!("Pair config: {:?}", pair_config);
     let start_time = Instant::now();
 
-    let prefix = std::env::var("S3_PREFIX")
-        .unwrap_or_else(|_| format!("{}/", pair));
+    let prefix = std::env::var("S3_PREFIX").unwrap_or_else(|_| format!("{}/", pair));
 
-    let region = std::env::var("AWS_REGION")
-        .unwrap_or_else(|_| "us-east-1".to_string());
+    let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
 
-    let max_files = std::env::var("MAX_FILES")
-        .ok()
-        .and_then(|s| s.parse().ok());
+    let max_files = std::env::var("MAX_FILES").ok().and_then(|s| s.parse().ok());
     let key_date_range = parse_s3_inclusive_date_range_from_env()
         .expect("S3_START_DATE / S3_END_DATE: set both as YYYY-MM-DD or neither");
 
@@ -121,7 +117,10 @@ async fn backtest_s3_queue_farmer() {
     );
 
     println!("Strategy: QueueFarmer v1.0 (2 bps live, 3.5 bps backtest ~500-2000 fills/day, 70/30 inv stop)");
-    println!("Config: $1M AUM, -0.75 bps rebate farming, {} ETH order size", order_amount);
+    println!(
+        "Config: $1M AUM, -0.75 bps rebate farming, {} ETH order size",
+        order_amount
+    );
     println!("Initial capital: $1,000,000");
     println!("Maker rebate: -0.75 bps (rebate)\n");
     println!("Downloading data from S3...\n");
@@ -134,15 +133,17 @@ async fn backtest_s3_queue_farmer() {
             println!("Backtest duration: {:.2}s", elapsed.as_secs_f64());
             println!("\n--- Portfolio Performance ---");
             println!("Initial capital: $1,000,000");
-            println!("Portfolio value (first snapshot): ${}", results.stats.initial_value);
+            println!(
+                "Portfolio value (first snapshot): ${}",
+                results.stats.initial_value
+            );
             println!("Final portfolio value: ${}", results.stats.final_value);
             println!("Total return: ${:+}", results.stats.total_return);
             println!("Return %: {:.4}%", results.stats.return_pct * 100.0);
 
             if let Some(n) = max_files {
                 let hours = (n as f64 / 85.0).max(1e-6);
-                let annualized_return =
-                    results.stats.return_pct * (365.0 * 24.0 / hours) * 100.0;
+                let annualized_return = results.stats.return_pct * (365.0 * 24.0 / hours) * 100.0;
                 println!(
                     "Annualized return (scaled from ~{:.1}h via MAX_FILES heuristic): {:.2}%",
                     hours, annualized_return
@@ -151,7 +152,10 @@ async fn backtest_s3_queue_farmer() {
 
             println!("\n--- P&L Breakdown ---");
             println!("Strategy P&L (realized): ${:+}", results.stats.realized_pnl);
-            println!("Unrealized P&L (mark-to-market): ${:+}", results.stats.unrealized_pnl);
+            println!(
+                "Unrealized P&L (mark-to-market): ${:+}",
+                results.stats.unrealized_pnl
+            );
             println!(
                 "Total P&L (portfolio value change): ${:+}",
                 results.stats.realized_pnl + results.stats.unrealized_pnl
@@ -162,7 +166,11 @@ async fn backtest_s3_queue_farmer() {
                 let mut days: Vec<_> = results.stats.realized_pnl_by_day.keys().collect();
                 days.sort();
                 for day in days.iter() {
-                    let pnl = results.stats.realized_pnl_by_day.get(*day).unwrap_or(&Decimal::ZERO);
+                    let pnl = results
+                        .stats
+                        .realized_pnl_by_day
+                        .get(*day)
+                        .unwrap_or(&Decimal::ZERO);
                     println!("  {}: ${:+}", day, pnl);
                 }
                 let total_realized: Decimal = results.stats.realized_pnl_by_day.values().sum();
@@ -171,13 +179,25 @@ async fn backtest_s3_queue_farmer() {
 
             println!("\n--- Risk Metrics ---");
             println!("Max drawdown: {:.4}%", results.stats.max_drawdown * 100.0);
-            println!("Max drawdown duration: {:.0}s", results.stats.max_drawdown_duration);
-            println!("Peak portfolio value: ${}", results.stats.max_portfolio_value);
-            println!("Trough portfolio value: ${}", results.stats.min_portfolio_value);
+            println!(
+                "Max drawdown duration: {:.0}s",
+                results.stats.max_drawdown_duration
+            );
+            println!(
+                "Peak portfolio value: ${}",
+                results.stats.max_portfolio_value
+            );
+            println!(
+                "Trough portfolio value: ${}",
+                results.stats.min_portfolio_value
+            );
             println!("Sharpe ratio: {:.2}", results.stats.sharpe_ratio);
             println!("Sortino ratio: {:.2}", results.stats.sortino_ratio);
             println!("Calmar ratio: {:.2}", results.stats.calmar_ratio);
-            println!("Annualized volatility: {:.4}%", results.stats.volatility * 100.0);
+            println!(
+                "Annualized volatility: {:.4}%",
+                results.stats.volatility * 100.0
+            );
 
             println!("\n--- Inventory ---");
             println!(
@@ -196,12 +216,21 @@ async fn backtest_s3_queue_farmer() {
 
             println!("\n--- Trading Activity ---");
             println!("Total fills: {}", results.simulator_stats.total_fills);
-            println!("Partial fills: {}", results.simulator_stats.total_partial_fills);
+            println!(
+                "Partial fills: {}",
+                results.simulator_stats.total_partial_fills
+            );
             println!("Total volume: ${}", results.stats.total_volume);
             let rebates = -results.stats.total_fees;
             println!("Rebates received: ${}", rebates);
-            println!("Buy volume: ${} ({} fills)", results.stats.buy_volume, results.stats.buy_fills);
-            println!("Sell volume: ${} ({} fills)", results.stats.sell_volume, results.stats.sell_fills);
+            println!(
+                "Buy volume: ${} ({} fills)",
+                results.stats.buy_volume, results.stats.buy_fills
+            );
+            println!(
+                "Sell volume: ${} ({} fills)",
+                results.stats.sell_volume, results.stats.sell_fills
+            );
 
             println!("\n--- Trade Quality ---");
             println!("Total round-trips: {}", results.stats.total_trades);
@@ -226,7 +255,10 @@ async fn backtest_s3_queue_farmer() {
             }
 
             if results.stats.return_pct > 0.0 {
-                println!("\n✅ Positive return: {:.4}%", results.stats.return_pct * 100.0);
+                println!(
+                    "\n✅ Positive return: {:.4}%",
+                    results.stats.return_pct * 100.0
+                );
             } else {
                 println!(
                     "\n⚠️  Negative return: {:.4}%",

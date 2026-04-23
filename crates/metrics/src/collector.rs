@@ -1,7 +1,7 @@
 use mm_core_types::{Fill, FillReason};
 use mm_portfolio::Portfolio;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 use crate::{InventoryTracker, MarkoutTracker, RoundTrip};
@@ -301,9 +301,9 @@ impl MetricsCollector {
             })
             .unwrap_or(first_val);
 
-        let (inventory_drag_pnl, _, inv_ratio) = self
-            .inventory_tracker
-            .inventory_pnl_ratio(portfolio.realized_pnl, first_val, last_val);
+        let (inventory_drag_pnl, _, inv_ratio) =
+            self.inventory_tracker
+                .inventory_pnl_ratio(portfolio.realized_pnl, first_val, last_val);
 
         let vol_f64 = self.total_volume.to_f64().unwrap_or(0.0);
         let days = self.daily_volume.len().max(1) as f64;
@@ -421,7 +421,11 @@ impl MetricsCollector {
         if self.round_trips.is_empty() {
             return 0.0;
         }
-        let wins = self.round_trips.iter().filter(|rt| rt.pnl > Decimal::ZERO).count();
+        let wins = self
+            .round_trips
+            .iter()
+            .filter(|rt| rt.pnl > Decimal::ZERO)
+            .count();
         wins as f64 / self.round_trips.len() as f64
     }
 
@@ -565,7 +569,11 @@ mod risk_metric_tests {
             m.record_equity_sample(ts, v);
         }
         let dd = m.max_drawdown();
-        assert!((dd - 0.15).abs() < 1e-9, "expected 15% drawdown, got {}", dd);
+        assert!(
+            (dd - 0.15).abs() < 1e-9,
+            "expected 15% drawdown, got {}",
+            dd
+        );
     }
 
     #[test]
@@ -576,6 +584,10 @@ mod risk_metric_tests {
         m.record_equity_sample(ts_day(1), dec!(990_000));
         m.record_equity_sample(ts_day(2), dec!(1_010_000));
         let s = m.sharpe();
-        assert!(s.is_finite() && s > 1.0 && s < 30.0, "unexpected daily Sharpe {}", s);
+        assert!(
+            s.is_finite() && s > 1.0 && s < 30.0,
+            "unexpected daily Sharpe {}",
+            s
+        );
     }
 }

@@ -2,13 +2,15 @@ use anyhow::{Context, Result};
 use clap::ValueEnum;
 use crypto_com_api::{MarketEvent, MarketStreamConfig, PublicTrade, WebSocketClient};
 use mm_core_types::{Fill as CoreFill, FillReason, Side};
-use mm_engine::{BacktestEngine, LatencyModel, MMDashboardSummary, QueueModelConfig, SimpleFeeModel};
+use mm_engine::{
+    BacktestEngine, LatencyModel, MMDashboardSummary, QueueModelConfig, SimpleFeeModel,
+};
 use rebate_mm::RebateMMStrategy;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use serde::Serialize;
 use serde::Deserialize;
+use serde::Serialize;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -50,10 +52,8 @@ impl LatencyProfile {
 
 pub async fn run_live_paper(config: LivePaperConfig) -> Result<()> {
     let pair_config = load_pair_config(&config.trading_pair)?;
-    let tick_size =
-        Decimal::from_f64_retain(pair_config.tick_size).unwrap_or(dec!(0.01));
-    let order_amount =
-        Decimal::from_f64_retain(pair_config.order_amount).unwrap_or(dec!(0.5));
+    let tick_size = Decimal::from_f64_retain(pair_config.tick_size).unwrap_or(dec!(0.01));
+    let order_amount = Decimal::from_f64_retain(pair_config.order_amount).unwrap_or(dec!(0.5));
 
     let strategy = RebateMMStrategy::new(order_amount, tick_size)
         .with_base_spread(3.0)
@@ -104,9 +104,8 @@ pub async fn run_live_paper(config: LivePaperConfig) -> Result<()> {
     let client = WebSocketClient::new().with_reconnect_delay(Duration::from_secs(2));
     let mut stream = client
         .stream_market_data(
-            MarketStreamConfig::new(config.trading_pair.clone(), config.depth).with_trades(
-                config.record_trades_dir.is_some(),
-            ),
+            MarketStreamConfig::new(config.trading_pair.clone(), config.depth)
+                .with_trades(config.record_trades_dir.is_some()),
         )
         .await?;
 
@@ -124,7 +123,11 @@ pub async fn run_live_paper(config: LivePaperConfig) -> Result<()> {
     if config.record_trades_dir.is_some() {
         println!(
             "Recording: public tape + simulated fills -> {:?}",
-            config.record_trades_dir.as_ref().unwrap().join(&config.trading_pair)
+            config
+                .record_trades_dir
+                .as_ref()
+                .unwrap()
+                .join(&config.trading_pair)
         );
     }
     println!("Press Ctrl+C to stop.");

@@ -40,12 +40,7 @@ pub trait Strategy: Send + Sync {
     ) -> Vec<OrderIntent>;
 
     /// Called when an order fills
-    fn on_fill(
-        &mut self,
-        fill: &Fill,
-        portfolio: &mut Portfolio,
-        timestamp: f64,
-    );
+    fn on_fill(&mut self, fill: &Fill, portfolio: &mut Portfolio, timestamp: f64);
 
     /// Called periodically (for time-based logic)
     fn on_tick(

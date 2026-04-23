@@ -64,7 +64,8 @@ impl RoundTripTracker {
                 }
                 // Remaining opens a long position
                 if remaining > Decimal::ZERO {
-                    self.long_queue.push_back((remaining, fill.price, fill.timestamp));
+                    self.long_queue
+                        .push_back((remaining, fill.price, fill.timestamp));
                 }
             }
             Side::Sell => {
@@ -95,7 +96,8 @@ impl RoundTripTracker {
                 }
                 // Remaining opens a short position
                 if remaining > Decimal::ZERO {
-                    self.short_queue.push_back((remaining, fill.price, fill.timestamp));
+                    self.short_queue
+                        .push_back((remaining, fill.price, fill.timestamp));
                 }
             }
         }

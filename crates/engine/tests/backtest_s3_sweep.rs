@@ -16,13 +16,14 @@
 
 mod common;
 
-use mm_engine::BacktestEngine;
 use common::rebate_mm_sweep_builder::{
-    apply_crossed_book_survival_env, build_strategy, engine_capital_from_harness, experiments_from_sweep, get_bool,
-    get_f64, merge_profile_with_engine_defaults, order_amount_from_config, queue_model_from_config,
-    read_backtest_engine_harness, read_sweep_yaml, simple_fee_model_from_config, tick_size_from_config,
+    apply_crossed_book_survival_env, build_strategy, engine_capital_from_harness,
+    experiments_from_sweep, get_bool, get_f64, merge_profile_with_engine_defaults,
+    order_amount_from_config, queue_model_from_config, read_backtest_engine_harness,
+    read_sweep_yaml, simple_fee_model_from_config, tick_size_from_config,
 };
 use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
+use mm_engine::BacktestEngine;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -58,7 +59,10 @@ async fn backtest_s3_sweep() {
             std::process::exit(1);
         }
     };
-    let max_concurrent = std::env::var("MAX_CONCURRENT_DOWNLOADS").ok().and_then(|s| s.parse().ok()).unwrap_or(32);
+    let max_concurrent = std::env::var("MAX_CONCURRENT_DOWNLOADS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(32);
 
     let experiments = experiments_from_sweep(&sweep);
     if experiments.is_empty() {
@@ -78,11 +82,14 @@ async fn backtest_s3_sweep() {
         "Harness: backtest_engine_harness.yaml defaults + profile row; CROSSED_BOOK_SURVIVAL_RATE overrides survival when set"
     );
 
-    let output_csv = std::env::var("SWEEP_OUTPUT_CSV").unwrap_or_else(|_| "sweep_results.csv".to_string());
+    let output_csv =
+        std::env::var("SWEEP_OUTPUT_CSV").unwrap_or_else(|_| "sweep_results.csv".to_string());
     let abs_csv = if PathBuf::from(&output_csv).is_absolute() {
         PathBuf::from(&output_csv)
     } else {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join(&output_csv)
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(&output_csv)
     };
 
     let mut csv_writer = csv::Writer::from_path(&abs_csv).expect("Failed to create CSV");
@@ -125,15 +132,21 @@ async fn backtest_s3_sweep() {
         let fee_model = simple_fee_model_from_config(&config);
         let queue_config = apply_crossed_book_survival_env(queue_model_from_config(&config));
 
-        let loader = S3Loader::new(bucket.clone(), prefix.clone(), region.clone(), max_concurrent)
-            .await
-            .expect("Failed to create S3 loader")
-            .with_pair_filter(&pair)
-            .with_max_files(max_files)
-            .with_s3_key_date_range(key_date_range);
+        let loader = S3Loader::new(
+            bucket.clone(),
+            prefix.clone(),
+            region.clone(),
+            max_concurrent,
+        )
+        .await
+        .expect("Failed to create S3 loader")
+        .with_pair_filter(&pair)
+        .with_max_files(max_files)
+        .with_s3_key_date_range(key_date_range);
 
         let mut engine =
-            BacktestEngine::new(strategy, initial_quote, initial_base, fee_model, tick_size).with_queue_config(queue_config);
+            BacktestEngine::new(strategy, initial_quote, initial_base, fee_model, tick_size)
+                .with_queue_config(queue_config);
 
         let start = Instant::now();
         let result = match engine.run(loader).await {

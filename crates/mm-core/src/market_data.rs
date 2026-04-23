@@ -1,5 +1,5 @@
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,7 +51,11 @@ impl OrderBook {
         if mid.is_zero() {
             return None;
         }
-        Some((spread / mid * Decimal::from(10000)).to_f64().unwrap_or(0.0))
+        Some(
+            (spread / mid * Decimal::from(10000))
+                .to_f64()
+                .unwrap_or(0.0),
+        )
     }
 
     pub fn best_bid(&self) -> Option<Decimal> {

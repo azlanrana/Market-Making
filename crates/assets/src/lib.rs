@@ -4,4 +4,3 @@
 pub mod registry;
 
 pub use registry::AssetRegistry;
-

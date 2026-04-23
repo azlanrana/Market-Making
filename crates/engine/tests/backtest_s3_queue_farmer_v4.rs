@@ -10,9 +10,9 @@
 //!
 //! Run: cargo test -p mm-engine backtest_s3_queue_farmer_v4 --release -- --ignored --nocapture
 
+use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
 use mm_engine::{BacktestEngine, SimpleFeeModel};
 use queue_farmer_v4::QueueFarmerV4;
-use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::Deserialize;
@@ -75,9 +75,7 @@ async fn backtest_s3_queue_farmer_v4() {
 
     let prefix = std::env::var("S3_PREFIX").unwrap_or_else(|_| format!("{}/", pair));
     let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
-    let max_files = std::env::var("MAX_FILES")
-        .ok()
-        .and_then(|s| s.parse().ok());
+    let max_files = std::env::var("MAX_FILES").ok().and_then(|s| s.parse().ok());
     let key_date_range = parse_s3_inclusive_date_range_from_env()
         .expect("S3_START_DATE / S3_END_DATE: set both as YYYY-MM-DD or neither");
     let max_concurrent = std::env::var("MAX_CONCURRENT_DOWNLOADS")
@@ -92,11 +90,16 @@ async fn backtest_s3_queue_farmer_v4() {
     println!("  Max files: {:?}", max_files);
     println!();
 
-    let loader = S3Loader::new(bucket.clone(), prefix.clone(), region.clone(), max_concurrent)
-        .await
-        .expect("Failed to create S3 loader")
-        .with_max_files(max_files)
-        .with_s3_key_date_range(key_date_range);
+    let loader = S3Loader::new(
+        bucket.clone(),
+        prefix.clone(),
+        region.clone(),
+        max_concurrent,
+    )
+    .await
+    .expect("Failed to create S3 loader")
+    .with_max_files(max_files)
+    .with_s3_key_date_range(key_date_range);
 
     let order_amount = Decimal::from_f64_retain(pair_config.order_amount).unwrap_or(dec!(1.0));
     let tick_size = Decimal::from_f64_retain(pair_config.tick_size).unwrap_or(dec!(0.01));
@@ -110,16 +113,15 @@ async fn backtest_s3_queue_farmer_v4() {
     // Maker rebate -0.75 bps (we receive), taker fee 1.5 bps
     let fee_model = SimpleFeeModel::new(dec!(-0.75), dec!(1.5));
 
-    let mut engine = BacktestEngine::new(
-        strategy,
-        dec!(1000000),
-        dec!(1),
-        fee_model,
-        tick_size,
-    );
+    let mut engine = BacktestEngine::new(strategy, dec!(1000000), dec!(1), fee_model, tick_size);
 
-    println!("Strategy: QueueFarmer v4.0 (tick-based, price-improving, spread filter, book imbalance)");
-    println!("Config: $1M AUM, -0.75 bps maker rebate, {} order size, tick {}", order_amount, tick_size);
+    println!(
+        "Strategy: QueueFarmer v4.0 (tick-based, price-improving, spread filter, book imbalance)"
+    );
+    println!(
+        "Config: $1M AUM, -0.75 bps maker rebate, {} order size, tick {}",
+        order_amount, tick_size
+    );
     println!("Downloading data from S3...\n");
 
     match engine.run(loader).await {
@@ -148,13 +150,19 @@ async fn backtest_s3_queue_farmer_v4() {
 
             println!("=== QueueFarmer v4 S3 Backtest Results (NEW ENGINE) ===");
             println!("Backtest duration: {:.2}s", elapsed.as_secs_f64());
-            println!("Simulated period: {:.1} hours ({:.2} days)", sim_hours, sim_days);
+            println!(
+                "Simulated period: {:.1} hours ({:.2} days)",
+                sim_hours, sim_days
+            );
             println!("Snapshots processed: {}", results.snapshot_count);
 
             println!("\n--- Portfolio Performance ---");
             println!("Total PnL:        ${}", pnl_display);
             println!("Realized PnL:     ${}", realized_display);
-            println!("Unrealized PnL:   ${} (inventory mark-to-market)", unrealized);
+            println!(
+                "Unrealized PnL:   ${} (inventory mark-to-market)",
+                unrealized
+            );
 
             println!("\n--- Risk Metrics ---");
             println!("Win rate:         {:.1}%", s.win_rate * 100.0);

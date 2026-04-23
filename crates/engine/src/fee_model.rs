@@ -71,7 +71,8 @@ mod tests {
 
     #[test]
     fn crossed_book_half_taker_blends_fees() {
-        let m = SimpleFeeModel::new(dec!(-0.75), dec!(1.5)).with_crossed_book_taker_weight(dec!(0.5));
+        let m =
+            SimpleFeeModel::new(dec!(-0.75), dec!(1.5)).with_crossed_book_taker_weight(dec!(0.5));
         let f = fill_crossed();
         let bps = m.fee_bps(&f);
         assert_eq!(bps, dec!(0.375));

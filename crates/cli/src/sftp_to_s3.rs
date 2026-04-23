@@ -2,18 +2,18 @@
 
 use crate::sftp_key::ensure_private_key_path;
 use anyhow::{Context, Result};
-use ssh2::Session;
-use std::net::TcpStream;
-use std::path::Path;
-use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::Client as S3Client;
 use bytes::Bytes;
+use crossbeam_channel::unbounded;
+use ssh2::Session;
 use std::collections::HashSet;
 use std::io::Read;
-use std::sync::Arc;
-use std::time::{Instant, Duration};
-use crossbeam_channel::unbounded;
+use std::net::TcpStream;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::task::JoinSet;
 
 #[derive(Default)]
@@ -53,11 +53,14 @@ pub async fn upload_sftp_to_s3(
         .load()
         .await;
     let s3_client = Arc::new(S3Client::new(&config));
-    
+
     // One persistent SFTP session per worker (default: 20). Avoids SSH handshake per file.
     let max_concurrent = max_concurrent.unwrap_or(20).max(1);
     let max_s3_concurrent = max_s3_concurrent.unwrap_or(64).max(1);
-    println!("Max concurrent SFTP workers (reuse session per worker): {}", max_concurrent);
+    println!(
+        "Max concurrent SFTP workers (reuse session per worker): {}",
+        max_concurrent
+    );
     println!("Max concurrent S3 PutObject: {}", max_s3_concurrent);
 
     ensure_private_key_path(sftp_key_path)?;
@@ -69,35 +72,33 @@ pub async fn upload_sftp_to_s3(
     println!("Connecting to SFTP...");
     let tcp = TcpStream::connect(format!("{}:22", sftp_host))
         .with_context(|| format!("Failed to connect to {}", sftp_host))?;
-    
-    let mut sess = Session::new()
-        .map_err(|e| anyhow::anyhow!("Failed to create SSH session: {:?}", e))?;
-    
+
+    let mut sess =
+        Session::new().map_err(|e| anyhow::anyhow!("Failed to create SSH session: {:?}", e))?;
+
     sess.set_tcp_stream(tcp);
-    sess.handshake()
-        .with_context(|| "SSH handshake failed")?;
-    
-    sess.userauth_pubkey_file(
-        sftp_username,
-        None,
-        Path::new(sftp_key_path),
-        None,
-    )
-    .with_context(|| format!("Authentication failed for user {}", sftp_username))?;
-    
+    sess.handshake().with_context(|| "SSH handshake failed")?;
+
+    sess.userauth_pubkey_file(sftp_username, None, Path::new(sftp_key_path), None)
+        .with_context(|| format!("Authentication failed for user {}", sftp_username))?;
+
     if !sess.authenticated() {
         return Err(anyhow::anyhow!("Authentication failed"));
     }
 
-    let sftp = sess.sftp()
+    let sftp = sess
+        .sftp()
         .with_context(|| "Failed to create SFTP session")?;
 
     // Parse date range
     let start = parse_date(start_date)?;
     let end = parse_date(end_date)?;
-    
+
     // Build base path - ensure leading slash for absolute SFTP path
-    let path_parts: Vec<&str> = sftp_remote_path.split('/').filter(|s| !s.is_empty()).collect();
+    let path_parts: Vec<&str> = sftp_remote_path
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .collect();
     let day_idx = path_parts.len().saturating_sub(3);
     let base_path = if day_idx >= 2 {
         let joined = path_parts[..day_idx - 2].join("/");
@@ -121,9 +122,11 @@ pub async fn upload_sftp_to_s3(
     while current_date <= end {
         let (year, month, day) = date_to_components(current_date);
         // Crypto.com SFTP uses unpadded month/day: /exchange/.../2025/1/1/cdc/PAIR
-        let day_path = format!("{}/{}/{}/{}/{}/{}", 
-            base_path, year, month, day, cdc_part, pair_part);
-        
+        let day_path = format!(
+            "{}/{}/{}/{}/{}/{}",
+            base_path, year, month, day, cdc_part, pair_part
+        );
+
         println!("  Checking: {}", day_path);
         match sftp.readdir(Path::new(&day_path)) {
             Ok(files) => {
@@ -136,8 +139,10 @@ pub async fn upload_sftp_to_s3(
                         if name.ends_with(".gz") {
                             gz_files_in_dir += 1;
                             let remote_file_path = format!("{}/{}", day_path, name);
-                            let s3_key = format!("{}{:04}/{:02}/{:02}/{}/{}/{}", 
-                                s3_prefix, year, month, day, cdc_part, pair_part, name);
+                            let s3_key = format!(
+                                "{}{:04}/{:02}/{:02}/{}/{}/{}",
+                                s3_prefix, year, month, day, cdc_part, pair_part, name
+                            );
                             all_files.push((remote_file_path, s3_key, (year, month, day)));
                         } else {
                             non_gz_files.push(name.to_string());
@@ -147,34 +152,49 @@ pub async fn upload_sftp_to_s3(
                 if total_files_in_dir == 0 {
                     println!("    Directory exists but is empty");
                 } else if gz_files_in_dir == 0 {
-                    println!("    Found {} files but none are .gz files", total_files_in_dir);
+                    println!(
+                        "    Found {} files but none are .gz files",
+                        total_files_in_dir
+                    );
                     if !non_gz_files.is_empty() {
                         let sample: Vec<String> = non_gz_files.iter().take(5).cloned().collect();
                         println!("    Sample files: {}", sample.join(", "));
                     }
                 } else {
-                    println!("    Found {} .gz files ({} total files)", gz_files_in_dir, total_files_in_dir);
+                    println!(
+                        "    Found {} .gz files ({} total files)",
+                        gz_files_in_dir, total_files_in_dir
+                    );
                 }
             }
             Err(e) => {
                 println!("    Error: Directory not found or inaccessible: {}", e);
             }
         }
-                    current_date = next_day(current_date);
+        current_date = next_day(current_date);
     }
-    
+
     all_files.sort();
-    stats.total_files.store(all_files.len() as u64, Ordering::Relaxed);
-    
+    stats
+        .total_files
+        .store(all_files.len() as u64, Ordering::Relaxed);
+
     println!("Found {} files to process", all_files.len());
-    
+
     let files_to_upload = if skip_s3_check {
         println!("Skipping S3 check (assuming all files need to be uploaded)...");
-        all_files.iter().map(|(r, s, d)| (r.clone(), s.clone(), *d)).collect()
+        all_files
+            .iter()
+            .map(|(r, s, d)| (r.clone(), s.clone(), *d))
+            .collect()
     } else {
         println!("Checking existing files in S3...");
         let existing_keys = list_existing_s3_keys(&s3_client, s3_bucket, s3_prefix).await?;
-        println!("  Found {} existing keys under {}", existing_keys.len(), s3_prefix);
+        println!(
+            "  Found {} existing keys under {}",
+            existing_keys.len(),
+            s3_prefix
+        );
 
         let mut files_to_upload = Vec::new();
         let mut existing_count = 0;
@@ -185,7 +205,9 @@ pub async fn upload_sftp_to_s3(
             let checked_count = idx + 1;
 
             // Show progress every 5000 files plus a final checkpoint
-            if checked_count % 5000 == 0 || (checked_count == total_to_check && check_start.elapsed().as_secs() >= 1) {
+            if checked_count % 5000 == 0
+                || (checked_count == total_to_check && check_start.elapsed().as_secs() >= 1)
+            {
                 let percent = (checked_count as f64 / total_to_check as f64) * 100.0;
                 println!(
                     "  Checked {}/{} files ({:.1}%) - Found {} existing, {} to upload",
@@ -204,21 +226,21 @@ pub async fn upload_sftp_to_s3(
                 files_to_upload.push((remote_path.clone(), s3_key.clone(), *date));
             }
         }
-        
+
         files_to_upload
     };
-    
+
     let existing_count = all_files.len() - files_to_upload.len();
-    
+
     println!("  {} files already exist in S3 (skipped)", existing_count);
     println!("  {} files need to be uploaded", files_to_upload.len());
     println!();
-    
+
     if files_to_upload.is_empty() {
         println!("All files already uploaded!");
         return Ok(());
     }
-    
+
     // Upload files with progress tracking
     let start_time = Arc::new(Instant::now());
 
@@ -234,7 +256,7 @@ pub async fn upload_sftp_to_s3(
             let failed = stats_for_progress.failed.load(Ordering::Relaxed);
             let total = stats_for_progress.total_files.load(Ordering::Relaxed);
             let processed = uploaded + skipped + failed;
-            
+
             if total > 0 && processed < total {
                 let percent = (processed as f64 / total as f64) * 100.0;
                 let elapsed = start_time_for_progress.as_ref().elapsed();
@@ -249,7 +271,7 @@ pub async fn upload_sftp_to_s3(
                 } else {
                     0
                 };
-                
+
                 println!("  Progress: {:.1}% | Uploaded: {} | Skipped: {} | Failed: {} | Rate: {:.1} files/s | ETA: {}s", 
                     percent, uploaded, skipped, failed, rate, eta_secs);
             } else if processed >= total {
@@ -257,11 +279,10 @@ pub async fn upload_sftp_to_s3(
             }
         }
     });
-    
+
     // Bounded result queue: SFTP workers block if S3 / main task falls behind (backpressure).
     let result_buf = (max_concurrent.max(max_s3_concurrent) * 4).max(32);
-    let (result_tx, mut result_rx) =
-        tokio::sync::mpsc::channel::<SftpDownloadMsg>(result_buf);
+    let (result_tx, mut result_rx) = tokio::sync::mpsc::channel::<SftpDownloadMsg>(result_buf);
     let (job_tx, job_rx) = unbounded::<(String, String)>();
 
     let host_owned = sftp_host.to_string();
@@ -315,10 +336,7 @@ pub async fn upload_sftp_to_s3(
                     (s3_key, res)
                 });
             }
-            SftpDownloadMsg::Err {
-                remote_path,
-                error,
-            } => {
+            SftpDownloadMsg::Err { remote_path, error } => {
                 eprintln!("  SFTP read failed: {} -> {}", remote_path, error);
                 stats.failed.fetch_add(1, Ordering::Relaxed);
             }
@@ -338,20 +356,23 @@ pub async fn upload_sftp_to_s3(
             }
         }
     }
-    
+
     // Stop progress reporter
     progress_handle.abort();
-    
+
     let elapsed = start_time.as_ref().elapsed();
     let uploaded = stats.uploaded.load(Ordering::Relaxed);
     let skipped = stats.skipped.load(Ordering::Relaxed);
     let failed = stats.failed.load(Ordering::Relaxed);
     let retried = stats.retried.load(Ordering::Relaxed);
     let bytes_uploaded = stats.bytes_uploaded.load(Ordering::Relaxed);
-    
+
     println!();
     println!("=== Upload Complete ===");
-    println!("Total files found: {}", stats.total_files.load(Ordering::Relaxed));
+    println!(
+        "Total files found: {}",
+        stats.total_files.load(Ordering::Relaxed)
+    );
     println!("Files uploaded: {}", uploaded);
     println!("Files skipped (already exist): {}", skipped);
     println!("Files failed: {}", failed);
@@ -359,7 +380,10 @@ pub async fn upload_sftp_to_s3(
     println!("Bytes uploaded: {} MB", bytes_uploaded / 1_000_000);
     println!("Time elapsed: {:.2}s", elapsed.as_secs_f64());
     if elapsed.as_secs() > 0 {
-        println!("Average rate: {:.1} files/s", uploaded as f64 / elapsed.as_secs() as f64);
+        println!(
+            "Average rate: {:.1} files/s",
+            uploaded as f64 / elapsed.as_secs() as f64
+        );
     }
     println!("S3 location: s3://{}/{}", s3_bucket, s3_prefix);
 
@@ -402,7 +426,12 @@ async fn list_existing_s3_keys(
         }
 
         if pages % 50 == 0 {
-            println!("  Listed {} S3 pages under {} ({} keys so far)", pages, prefix, keys.len());
+            println!(
+                "  Listed {} S3 pages under {} ({} keys so far)",
+                pages,
+                prefix,
+                keys.len()
+            );
         }
 
         if response.is_truncated.unwrap_or(false) {
@@ -546,20 +575,22 @@ async fn put_s3_with_retry(
     Err(anyhow::anyhow!("S3 put_object exhausted retries"))
 }
 
-
 fn parse_date(date_str: &str) -> Result<(i32, u32, u32)> {
     let parts: Vec<&str> = date_str.split('-').collect();
     if parts.len() != 3 {
         return Err(anyhow::anyhow!("Invalid date format: {}", date_str));
     }
-    
-    let year: i32 = parts[0].parse()
+
+    let year: i32 = parts[0]
+        .parse()
         .with_context(|| format!("Invalid year: {}", parts[0]))?;
-    let month: u32 = parts[1].parse()
+    let month: u32 = parts[1]
+        .parse()
         .with_context(|| format!("Invalid month: {}", parts[1]))?;
-    let day: u32 = parts[2].parse()
+    let day: u32 = parts[2]
+        .parse()
         .with_context(|| format!("Invalid day: {}", parts[2]))?;
-    
+
     Ok((year, month, day))
 }
 
@@ -570,7 +601,7 @@ fn date_to_components(date: (i32, u32, u32)) -> (i32, u32, u32) {
 fn next_day(date: (i32, u32, u32)) -> (i32, u32, u32) {
     let (mut y, mut m, mut d) = date;
     d += 1;
-    
+
     let days_in_month = match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         4 | 6 | 9 | 11 => 30,
@@ -583,7 +614,7 @@ fn next_day(date: (i32, u32, u32)) -> (i32, u32, u32) {
         }
         _ => 31,
     };
-    
+
     if d > days_in_month {
         d = 1;
         m += 1;
@@ -592,7 +623,6 @@ fn next_day(date: (i32, u32, u32)) -> (i32, u32, u32) {
             y += 1;
         }
     }
-    
+
     (y, m, d)
 }
-

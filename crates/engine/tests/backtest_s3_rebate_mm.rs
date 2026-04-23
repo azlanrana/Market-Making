@@ -27,15 +27,16 @@
 
 mod common;
 
-use mm_engine::BacktestEngine;
-use mm_metrics::TOXIC_FLOW_THRESHOLD_BPS;
 use common::rebate_mm_sweep_builder::{
-    apply_crossed_book_survival_env, build_strategy, engine_capital_from_harness, experiments_from_sweep, merge,
-    merge_profile_with_engine_defaults, order_amount_from_config, queue_model_from_config, read_backtest_engine_harness,
-    read_sweep_yaml, simple_fee_model_from_config, tick_size_from_config,
+    apply_crossed_book_survival_env, build_strategy, engine_capital_from_harness,
+    experiments_from_sweep, merge, merge_profile_with_engine_defaults, order_amount_from_config,
+    queue_model_from_config, read_backtest_engine_harness, read_sweep_yaml,
+    simple_fee_model_from_config, tick_size_from_config,
 };
 use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
 use mm_core_types::{Fill as CoreFill, Side};
+use mm_engine::BacktestEngine;
+use mm_metrics::TOXIC_FLOW_THRESHOLD_BPS;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -54,30 +55,35 @@ fn print_dashboard(d: &mm_engine::MMDashboardSummary) {
     );
     println!(
         "  Cancel-ahead adv.: {} events / {:.4} total",
-        d.cancel_ahead_advance_events,
-        d.cancel_ahead_advance_total
+        d.cancel_ahead_advance_events, d.cancel_ahead_advance_total
     );
     println!("  Net edge/trade:    {:+.2} bps", d.net_edge_bps);
     println!("  1s markout:        {:+.2} bps", d.markout_1s_bps);
     println!("  5s markout:        {:+.2} bps", d.markout_5s_bps);
-    println!("  1s adverse sel.:   {:+.2} bps", d.adverse_selection_1s_bps);
-    println!("  5s adverse sel.:   {:+.2} bps", d.adverse_selection_5s_bps);
+    println!(
+        "  1s adverse sel.:   {:+.2} bps",
+        d.adverse_selection_1s_bps
+    );
+    println!(
+        "  5s adverse sel.:   {:+.2} bps",
+        d.adverse_selection_5s_bps
+    );
     println!(
         "  Spread capture:    ${:+.2} ({:+.2} bps)",
-        d.realized_spread_capture_pnl,
-        d.realized_spread_capture_bps
+        d.realized_spread_capture_pnl, d.realized_spread_capture_bps
     );
     println!(
         "  Rebate earned:     ${:+.2} ({:+.2} bps)",
-        d.rebate_earned_pnl,
-        d.rebate_earned_bps
+        d.rebate_earned_pnl, d.rebate_earned_bps
     );
     println!(
         "  Inventory drag:    ${:+.2} ({:+.2} bps)",
-        d.inventory_drag_pnl,
-        d.inventory_drag_bps
+        d.inventory_drag_pnl, d.inventory_drag_bps
     );
-    println!("  Inventory PnL:     {:.1}% of total", d.inventory_pnl_ratio);
+    println!(
+        "  Inventory PnL:     {:.1}% of total",
+        d.inventory_pnl_ratio
+    );
     println!("  Turnover:          {:.0}x daily", d.turnover_daily);
     println!("  Avg inventory:     {:.4}", d.avg_inventory);
     println!("  Max inventory:     {:.4}", d.max_inventory);
@@ -109,7 +115,9 @@ async fn backtest_s3_rebate_mm() {
         println!("Engine harness: {}", hp.display());
     }
 
-    let base_only = std::env::var("REBATE_MM_BASE_ONLY").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+    let base_only = std::env::var("REBATE_MM_BASE_ONLY")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
     let (run_label, profile_config) = if base_only {
         (
             "base_only (REBATE_MM_BASE_ONLY)".to_string(),
@@ -149,9 +157,7 @@ async fn backtest_s3_rebate_mm() {
 
     let prefix = std::env::var("S3_PREFIX").unwrap_or_else(|_| format!("{}/", pair));
     let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
-    let max_files = std::env::var("MAX_FILES")
-        .ok()
-        .and_then(|s| s.parse().ok());
+    let max_files = std::env::var("MAX_FILES").ok().and_then(|s| s.parse().ok());
     let key_date_range = parse_s3_inclusive_date_range_from_env()
         .expect("S3_START_DATE / S3_END_DATE: set both as YYYY-MM-DD or neither");
     let max_concurrent = std::env::var("MAX_CONCURRENT_DOWNLOADS")
@@ -159,12 +165,17 @@ async fn backtest_s3_rebate_mm() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(32);
 
-    let loader = S3Loader::new(bucket.clone(), prefix.clone(), region.clone(), max_concurrent)
-        .await
-        .expect("Failed to create S3 loader")
-        .with_pair_filter(&pair)
-        .with_max_files(max_files)
-        .with_s3_key_date_range(key_date_range);
+    let loader = S3Loader::new(
+        bucket.clone(),
+        prefix.clone(),
+        region.clone(),
+        max_concurrent,
+    )
+    .await
+    .expect("Failed to create S3 loader")
+    .with_pair_filter(&pair)
+    .with_max_files(max_files)
+    .with_s3_key_date_range(key_date_range);
 
     let order_amount = order_amount_from_config(&config);
     let tick_size = tick_size_from_config(&config);
@@ -198,9 +209,10 @@ async fn backtest_s3_rebate_mm() {
         .as_ref()
         .map(|_| Arc::new(Mutex::new(Vec::<CoreFill>::new())));
 
-    let mut engine = BacktestEngine::new(strategy, initial_quote, initial_base, fee_model, tick_size)
-        .with_queue_config(queue_config)
-        .with_markout_enabled(!fast_mode);
+    let mut engine =
+        BacktestEngine::new(strategy, initial_quote, initial_base, fee_model, tick_size)
+            .with_queue_config(queue_config)
+            .with_markout_enabled(!fast_mode);
 
     if let Some(ref fills) = fills {
         let fills_clone = fills.clone();
@@ -281,7 +293,10 @@ async fn backtest_s3_rebate_mm() {
                 let fills_path = format!("{}_fills.csv", fills_path.display());
                 let fills_path = std::path::Path::new(&fills_path);
                 if let Ok(mut f) = std::fs::File::create(fills_path) {
-                    let _ = writeln!(f, "timestamp,side,price,amount,value_usd,order_id,layer,fill_reason");
+                    let _ = writeln!(
+                        f,
+                        "timestamp,side,price,amount,value_usd,order_id,layer,fill_reason"
+                    );
                     for fill in fills_guard.iter() {
                         let side = match fill.side {
                             Side::Buy => "BUY",
@@ -305,7 +320,11 @@ async fn backtest_s3_rebate_mm() {
                             reason
                         );
                     }
-                    println!("Exported {} fills to {}", fills_guard.len(), fills_path.display());
+                    println!(
+                        "Exported {} fills to {}",
+                        fills_guard.len(),
+                        fills_path.display()
+                    );
                 }
             }
         }
@@ -356,22 +375,7 @@ async fn backtest_s3_rebate_mm() {
             .unwrap_or_else(|| "backtest_metrics.csv".to_string());
         let metrics_path = abs_path.with_file_name(&metrics_name);
         let dash = results.dashboard.as_ref();
-        let (
-            fr,
-            ne,
-            scu,
-            scb,
-            ru,
-            rb,
-            td,
-            gf,
-            nf,
-            tf,
-            tb,
-            ta,
-            adv1,
-            mo1,
-        ) = match dash {
+        let (fr, ne, scu, scb, ru, rb, td, gf, nf, tf, tb, ta, adv1, mo1) = match dash {
             Some(d) => (
                 format!("{:.4}", d.fill_rate_pct),
                 format!("{:.4}", d.net_edge_bps),

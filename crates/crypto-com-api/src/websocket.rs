@@ -93,7 +93,10 @@ impl WebSocketClient {
                 let stream = match connect_async(&url).await {
                     Ok((stream, _)) => stream,
                     Err(err) => {
-                        if sender.send(Err(anyhow!("websocket connect failed: {err}"))).is_err() {
+                        if sender
+                            .send(Err(anyhow!("websocket connect failed: {err}")))
+                            .is_err()
+                        {
                             break;
                         }
                         tokio::time::sleep(reconnect_delay).await;
@@ -113,8 +116,14 @@ impl WebSocketClient {
                     config.include_trades,
                 );
 
-                if let Err(err) = write.send(Message::Text(subscribe_request.to_string())).await {
-                    if sender.send(Err(anyhow!("websocket subscribe failed: {err}"))).is_err() {
+                if let Err(err) = write
+                    .send(Message::Text(subscribe_request.to_string()))
+                    .await
+                {
+                    if sender
+                        .send(Err(anyhow!("websocket subscribe failed: {err}")))
+                        .is_err()
+                    {
                         break;
                     }
                     tokio::time::sleep(reconnect_delay).await;
@@ -135,9 +144,8 @@ impl WebSocketClient {
                                     if let Err(err) =
                                         write.send(Message::Text(response.to_string())).await
                                     {
-                                        let _ = sender.send(Err(anyhow!(
-                                            "heartbeat response failed: {err}"
-                                        )));
+                                        let _ = sender
+                                            .send(Err(anyhow!("heartbeat response failed: {err}")));
                                         should_reconnect = true;
                                         break;
                                     }
@@ -224,12 +232,7 @@ struct HeartbeatResponse {
     method: &'static str,
 }
 
-fn subscribe_message(
-    id: i64,
-    instrument_name: &str,
-    depth: u32,
-    include_trades: bool,
-) -> Value {
+fn subscribe_message(id: i64, instrument_name: &str, depth: u32, include_trades: bool) -> Value {
     let mut channels = vec![format!("book.{instrument_name}.{depth}")];
     if include_trades {
         channels.push(format!("trade.{instrument_name}"));
@@ -309,7 +312,10 @@ fn parse_market_events(value: &Value, book_state: &mut LocalBookState) -> Result
     Ok(Vec::new())
 }
 
-fn parse_book_snapshot(payload: &Value, book_state: &mut LocalBookState) -> Result<OrderBookSnapshot> {
+fn parse_book_snapshot(
+    payload: &Value,
+    book_state: &mut LocalBookState,
+) -> Result<OrderBookSnapshot> {
     let data = extract_first_data_item(payload)?;
     let instrument_name = payload
         .get("instrument_name")
@@ -346,7 +352,10 @@ fn parse_book_snapshot(payload: &Value, book_state: &mut LocalBookState) -> Resu
     build_snapshot_from_state(book_state, timestamp_ms, instrument_name)
 }
 
-fn apply_book_update(payload: &Value, book_state: &mut LocalBookState) -> Result<Option<OrderBookSnapshot>> {
+fn apply_book_update(
+    payload: &Value,
+    book_state: &mut LocalBookState,
+) -> Result<Option<OrderBookSnapshot>> {
     if book_state.last_u.is_none() {
         return Ok(None);
     }
@@ -355,8 +364,8 @@ fn apply_book_update(payload: &Value, book_state: &mut LocalBookState) -> Result
     let update = data
         .get("update")
         .ok_or_else(|| anyhow!("missing delta update payload"))?;
-    let current_u = extract_sequence(payload, data, "u")
-        .ok_or_else(|| anyhow!("missing delta sequence u"))?;
+    let current_u =
+        extract_sequence(payload, data, "u").ok_or_else(|| anyhow!("missing delta sequence u"))?;
     let previous_u = extract_sequence(payload, data, "pu")
         .ok_or_else(|| anyhow!("missing delta sequence pu"))?;
 
@@ -390,8 +399,8 @@ fn apply_book_update(payload: &Value, book_state: &mut LocalBookState) -> Result
     }
 
     book_state.last_u = Some(current_u);
-    let timestamp_ms = extract_sequence(payload, data, "t")
-        .ok_or_else(|| anyhow!("missing delta timestamp t"))?;
+    let timestamp_ms =
+        extract_sequence(payload, data, "t").ok_or_else(|| anyhow!("missing delta timestamp t"))?;
     let instrument_name = payload
         .get("instrument_name")
         .and_then(Value::as_str)
@@ -445,7 +454,7 @@ fn build_snapshot_from_state(
             })
             .collect(),
     )
-        .map_err(|err| anyhow!("failed to build order book snapshot: {err}"))
+    .map_err(|err| anyhow!("failed to build order book snapshot: {err}"))
 }
 
 fn parse_trades(payload: &Value) -> Result<Vec<PublicTrade>> {

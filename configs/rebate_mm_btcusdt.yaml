@@ -18,6 +18,11 @@ base:
   vol_threshold_bps: 2.0
   max_spread_multiplier: 4.0
 
+  # Overrides `backtest_engine_harness.yaml` default (0.4): assume colo-friendly queue —
+  # only this fraction of visible touch size is ahead of us (`MatchingEngine::market_queue_at_price`).
+  touch_queue_pct: 0.3
+
+
   # Must be ≥ `dynamic_order_max` × max Phase-1 mult (1.3) so flat-inventory bids are not blocked (~2.6+; use 3.0).
   inventory_limit: 3.0
   hedge_limit: 3.0

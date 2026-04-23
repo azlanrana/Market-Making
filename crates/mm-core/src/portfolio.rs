@@ -1,5 +1,5 @@
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 
 #[derive(Debug, Clone)]
 pub struct Portfolio {
@@ -35,7 +35,7 @@ impl Portfolio {
                     } else {
                         price
                     };
-                    
+
                     if self.base_balance.abs() <= amount {
                         // Closing entire short position
                         let realized = (short_cost - price) * self.base_balance.abs() - fees;
@@ -48,11 +48,11 @@ impl Portfolio {
                         self.cost_basis -= short_cost * amount;
                     }
                 }
-                
+
                 // Update balances
                 self.base_balance += amount;
                 self.quote_balance -= price * amount + fees;
-                
+
                 // Update cost basis for long position
                 if self.base_balance > Decimal::ZERO {
                     self.cost_basis += price * amount + fees;
@@ -67,11 +67,11 @@ impl Portfolio {
                     // Update cost basis (reduce by proportion sold)
                     self.cost_basis -= avg_cost * amount;
                 }
-                
+
                 // Update balances
                 self.base_balance -= amount;
                 self.quote_balance += price * amount - fees;
-                
+
                 // If we go short, track short cost basis
                 if self.base_balance < Decimal::ZERO {
                     if self.cost_basis == Decimal::ZERO {
@@ -79,7 +79,8 @@ impl Portfolio {
                     } else {
                         // Average short price
                         let prev_abs = (self.base_balance + amount).abs();
-                        self.cost_basis = (self.cost_basis * prev_abs + price * amount) / self.base_balance.abs();
+                        self.cost_basis =
+                            (self.cost_basis * prev_abs + price * amount) / self.base_balance.abs();
                     }
                 }
             }

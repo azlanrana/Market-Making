@@ -48,7 +48,10 @@ async fn validate_s3_data() {
         if s.timestamp < last_ts {
             timestamp_errors += 1;
             if timestamp_errors <= 3 {
-                println!("⚠️  Timestamp out of order at snapshot {}: {} < {} (prev)", i, s.timestamp, last_ts);
+                println!(
+                    "⚠️  Timestamp out of order at snapshot {}: {} < {} (prev)",
+                    i, s.timestamp, last_ts
+                );
             }
         }
         last_ts = s.timestamp;
@@ -66,10 +69,15 @@ async fn validate_s3_data() {
         if s.best_bid >= s.best_ask {
             crossed_errors += 1;
             if crossed_errors <= 3 {
-                println!("⚠️  Crossed book at snapshot {}: best_bid={} >= best_ask={}", i, s.best_bid, s.best_ask);
+                println!(
+                    "⚠️  Crossed book at snapshot {}: best_bid={} >= best_ask={}",
+                    i, s.best_bid, s.best_ask
+                );
             }
         }
-        if s.bids.first().map(|(p, _)| *p) != Some(s.best_bid) || s.asks.first().map(|(p, _)| *p) != Some(s.best_ask) {
+        if s.bids.first().map(|(p, _)| *p) != Some(s.best_bid)
+            || s.asks.first().map(|(p, _)| *p) != Some(s.best_ask)
+        {
             spread_errors += 1;
             if spread_errors <= 3 {
                 let bb = s.bids.first().map(|(p, _)| *p);
@@ -94,14 +102,27 @@ async fn validate_s3_data() {
     println!("\n--- First snapshot ---");
     println!("  timestamp: {}", first.timestamp);
     println!("  mid_price: {}", first.mid_price);
-    println!("  best_bid: {} best_ask: {}", first.best_bid, first.best_ask);
+    println!(
+        "  best_bid: {} best_ask: {}",
+        first.best_bid, first.best_ask
+    );
     println!("  spread_bps: {:.2}", first.spread_bps);
-    println!("  bids count: {} asks count: {}", first.bids.len(), first.asks.len());
+    println!(
+        "  bids count: {} asks count: {}",
+        first.bids.len(),
+        first.asks.len()
+    );
     if !first.bids.is_empty() {
-        println!("  first 3 bids: {:?}", &first.bids[..first.bids.len().min(3)]);
+        println!(
+            "  first 3 bids: {:?}",
+            &first.bids[..first.bids.len().min(3)]
+        );
     }
     if !first.asks.is_empty() {
-        println!("  first 3 asks: {:?}", &first.asks[..first.asks.len().min(3)]);
+        println!(
+            "  first 3 asks: {:?}",
+            &first.asks[..first.asks.len().min(3)]
+        );
     }
 
     // 4. Time range
@@ -109,8 +130,18 @@ async fn validate_s3_data() {
     let last_ts = snapshots.last().unwrap().timestamp;
     let hours = (last_ts - first_ts) / 3600.0;
     println!("\n--- Time range ---");
-    println!("  First: {} Last: {} Span: {:.2} hours", first_ts, last_ts, hours);
+    println!(
+        "  First: {} Last: {} Span: {:.2} hours",
+        first_ts, last_ts, hours
+    );
 
     let all_ok = timestamp_errors == 0 && crossed_errors == 0 && spread_errors == 0;
-    println!("\n=== Result: {} ===", if all_ok { "✅ All checks passed" } else { "❌ Issues found" });
+    println!(
+        "\n=== Result: {} ===",
+        if all_ok {
+            "✅ All checks passed"
+        } else {
+            "❌ Issues found"
+        }
+    );
 }

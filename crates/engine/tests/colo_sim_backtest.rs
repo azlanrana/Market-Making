@@ -33,11 +33,11 @@
 //!   Required daily:   ~$685/day
 //!   Colo queue pct:   12% ahead (reduces fills, adverse selection)
 
+use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
 use mm_engine::{BacktestEngine, QueueModelConfig, SimpleFeeModel};
 use queue_farmer_v4::QueueFarmerV4;
-use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -74,7 +74,10 @@ fn load_pair_config(pair: &str) -> Result<PairConfig, String> {
                 .map_err(|e| format!("Failed to parse {:?}: {}", path, e));
         }
     }
-    Err(format!("Config not found for {}. Create configs/{}", pair, config_name))
+    Err(format!(
+        "Config not found for {}. Create configs/{}",
+        pair, config_name
+    ))
 }
 
 #[tokio::test]
@@ -103,17 +106,24 @@ async fn colo_sim_backtest() {
     let prefix = std::env::var("S3_PREFIX").unwrap_or_else(|_| format!("{}/", pair));
     let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
     let max_concurrent = std::env::var("MAX_CONCURRENT_DOWNLOADS")
-        .ok().and_then(|s| s.parse().ok()).unwrap_or(64);
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(64);
     let max_files = std::env::var("MAX_FILES").ok().and_then(|s| s.parse().ok());
     let key_date_range = parse_s3_inclusive_date_range_from_env()
         .expect("S3_START_DATE / S3_END_DATE: set both as YYYY-MM-DD or neither");
 
     println!("Loading data from S3...");
-    let loader = S3Loader::new(bucket.clone(), prefix.clone(), region.clone(), max_concurrent)
-        .await
-        .expect("Failed to create S3 loader")
-        .with_max_files(max_files)
-        .with_s3_key_date_range(key_date_range);
+    let loader = S3Loader::new(
+        bucket.clone(),
+        prefix.clone(),
+        region.clone(),
+        max_concurrent,
+    )
+    .await
+    .expect("Failed to create S3 loader")
+    .with_max_files(max_files)
+    .with_s3_key_date_range(key_date_range);
 
     let order_amount = Decimal::from_f64_retain(pair_config.order_amount).unwrap_or(dec!(1.0));
     let tick_size = Decimal::from_f64_retain(pair_config.tick_size).unwrap_or(dec!(0.01));
@@ -123,8 +133,8 @@ async fn colo_sim_backtest() {
         .with_inventory_stop(0.65)
         .with_book_imbalance(0.75, 3)
         .with_spread_filter(2.5)
-        .with_microprice(0.2)           // Suppress bid/ask when microprice signals against us
-        .with_momentum(20, 1.0)         // Suppress bid on down move, ask on up (20 snaps, 1 bps — less aggressive)
+        .with_microprice(0.2) // Suppress bid/ask when microprice signals against us
+        .with_momentum(20, 1.0) // Suppress bid on down move, ask on up (20 snaps, 1 bps — less aggressive)
         .with_volatility_filter(50, 2.0) // Pull quotes when rolling vol > 2 bps
         .with_warmup(30.0);
 
@@ -198,12 +208,7 @@ async fn colo_sim_backtest() {
         stats.max_drawdown,
     );
     let round_trips_per_day = round_trips as f64 / days.max(0.001);
-    print_investor_summary(
-        days,
-        round_trips_per_day,
-        total_volume,
-        avg_fill_price,
-    );
+    print_investor_summary(days, round_trips_per_day, total_volume, avg_fill_price);
     if let Some(ref gates) = results.gate_diagnostics {
         println!("\n{}", gates);
     }
@@ -219,7 +224,10 @@ fn print_header() {
     println!("  Order size:     {:.1} ETH", ORDER_SIZE_ETH);
     println!("  Maker rebate:   {:.2} bps/fill", MAKER_REBATE_BPS);
     println!("  Taker fee:      {:.2} bps (stops only)", TAKER_FEE_BPS);
-    println!("  Colo queue pct: {:.0}% ahead of us", COLO_QUEUE_PCT * 100.0);
+    println!(
+        "  Colo queue pct: {:.0}% ahead of us",
+        COLO_QUEUE_PCT * 100.0
+    );
     println!("  Annual target:  {:.0}%", TARGET_ANNUAL_PCT);
     println!("{}\n", "=".repeat(60));
 }
@@ -256,7 +264,10 @@ fn print_results(
     };
 
     println!("--- Simulation ---");
-    println!("  Duration:        {:.1}h ({:.2} days)", simulated_hours, days);
+    println!(
+        "  Duration:        {:.1}h ({:.2} days)",
+        simulated_hours, days
+    );
     println!("  Snapshots:       {}", snapshots);
     println!("  Backtest time:   {:.1}s\n", elapsed);
 
@@ -272,7 +283,10 @@ fn print_results(
     println!("  Realized PnL:    ${:.2}", realized_pnl);
     println!("  Unrealized PnL:  ${:.2}", unrealized_pnl);
     println!("  Rebate income:   ${:.2}", rebate_total);
-    println!("  Adverse sel.:    ${:.2} ({:.2} bps/RT)\n", adverse_selection, as_bps);
+    println!(
+        "  Adverse sel.:    ${:.2} ({:.2} bps/RT)\n",
+        adverse_selection, as_bps
+    );
 
     println!("--- Risk ---");
     println!("  Win rate:        {:.1}%", win_rate * 100.0);
@@ -338,7 +352,10 @@ fn print_investor_summary(
 
 fn print_caveats(simulated_hours: f64) {
     println!("\n--- Simulation Notes ---");
-    println!("  • Queue priority set to {:.0}% (conservative colo estimate)", COLO_QUEUE_PCT * 100.0);
+    println!(
+        "  • Queue priority set to {:.0}% (conservative colo estimate)",
+        COLO_QUEUE_PCT * 100.0
+    );
     println!("    Real colo at Crypto.com Japan typically achieves top 10-20%");
     println!("  • L2 snapshot data: cannot distinguish trades from cancels");
     println!("    Adverse selection figures are approximate");
@@ -346,7 +363,10 @@ fn print_caveats(simulated_hours: f64) {
     println!("    - Real queue priority from physical colo");
     println!("    - Sub-millisecond order placement vs snapshot latency");
     println!("  • Risk controls validated: inventory stops fire correctly,");
-    println!("    no runaway positions observed in {:.0} hours", simulated_hours);
+    println!(
+        "    no runaway positions observed in {:.0} hours",
+        simulated_hours
+    );
     println!("  • Next step: 2-week paper trade on live feed to measure");
     println!("    actual adverse selection ratio before full capital deployment");
     println!();

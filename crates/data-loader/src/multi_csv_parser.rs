@@ -1,6 +1,6 @@
 use crate::loader::DataLoader;
-use orderbook::snapshot::OrderBookSnapshot;
 use anyhow::Result;
+use orderbook::snapshot::OrderBookSnapshot;
 
 /// Loads multiple CSV files and combines them chronologically
 pub struct MultiCsvParser {
@@ -19,20 +19,20 @@ impl DataLoader for MultiCsvParser {
     fn load_snapshots(&self) -> Result<Box<dyn Iterator<Item = Result<OrderBookSnapshot>> + Send>> {
         // We can't easily chain iterators that return Results of Boxes.
         // So we'll implement a custom iterator that goes through files.
-        
+
         let file_paths = self.file_paths.clone();
-        
+
         // Sort files if needed? The original implementation collected all and sorted by timestamp.
         // Here we'll assume file names or order provided is chronological.
         // If we want to sort by file name, we can do it here.
         // Let's assume input order is correct or the user should sort them.
-        
+
         let iter = MultiCsvIterator {
             file_paths,
             current_file_idx: 0,
             current_iter: None,
         };
-        
+
         Ok(Box::new(iter))
     }
 }
@@ -67,10 +67,15 @@ impl Iterator for MultiCsvIterator {
             match parser.load_snapshots() {
                 Ok(iter) => {
                     self.current_iter = Some(iter);
-                },
-                Err(e) => return Some(Err(anyhow::anyhow!("Failed to load file {}: {}", file_path, e))),
+                }
+                Err(e) => {
+                    return Some(Err(anyhow::anyhow!(
+                        "Failed to load file {}: {}",
+                        file_path,
+                        e
+                    )))
+                }
             }
         }
     }
 }
-

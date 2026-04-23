@@ -20,4 +20,3 @@ impl AssetRegistry {
         self.assets.get(symbol)
     }
 }
-

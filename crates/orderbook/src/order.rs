@@ -1,7 +1,7 @@
-use rust_decimal::Decimal;
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal_macros::dec;
 use mm_core::market_data::OrderSide as CoreOrderSide;
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OrderSide {
@@ -38,20 +38,20 @@ pub struct Order {
     pub timestamp: f64,
     pub layer: u32,
     pub order_type: String,
-    
+
     // Status tracking
     pub status: OrderStatus,
     pub filled_amount: Decimal,
     pub remaining_amount: Decimal,
-    
+
     // Queue position tracking
     pub queue_position: Decimal, // Total size ahead of this order at same price
     pub total_size_at_price: Decimal, // Total size at this price level
-    
+
     // Fill tracking
     pub fill_timestamps: Vec<(f64, Decimal)>,
     pub avg_fill_price: Decimal,
-    
+
     // Cancellation
     pub cancel_timestamp: Option<f64>,
 }
@@ -86,7 +86,10 @@ impl Order {
     }
 
     pub fn is_active(&self) -> bool {
-        matches!(self.status, OrderStatus::Active | OrderStatus::PartiallyFilled)
+        matches!(
+            self.status,
+            OrderStatus::Active | OrderStatus::PartiallyFilled
+        )
     }
 
     pub fn is_filled(&self) -> bool {
@@ -113,7 +116,8 @@ impl Order {
         self.remaining_amount -= actual_fill;
 
         // Update average fill price
-        let total_value = self.avg_fill_price * (self.filled_amount - actual_fill) + fill_price * actual_fill;
+        let total_value =
+            self.avg_fill_price * (self.filled_amount - actual_fill) + fill_price * actual_fill;
         self.avg_fill_price = if self.filled_amount > Decimal::ZERO {
             total_value / self.filled_amount
         } else {
@@ -149,6 +153,8 @@ impl Order {
         if self.original_amount <= Decimal::ZERO {
             return 0.0;
         }
-        (self.filled_amount / self.original_amount).to_f64().unwrap_or(0.0)
+        (self.filled_amount / self.original_amount)
+            .to_f64()
+            .unwrap_or(0.0)
     }
 }

@@ -11,7 +11,9 @@ struct VecLoader {
 }
 
 impl DataLoader for VecLoader {
-    fn load_snapshots(&self) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<OrderBookSnapshot>> + Send>> {
+    fn load_snapshots(
+        &self,
+    ) -> anyhow::Result<Box<dyn Iterator<Item = anyhow::Result<OrderBookSnapshot>> + Send>> {
         let snapshots = self.snapshots.clone();
         let iter = snapshots.into_iter().map(|s| Ok(s));
         Ok(Box::new(iter))
@@ -44,9 +46,7 @@ async fn test_determinism_with_latency() {
     let loader1 = VecLoader {
         snapshots: snapshots.clone(),
     };
-    let loader2 = VecLoader {
-        snapshots,
-    };
+    let loader2 = VecLoader { snapshots };
 
     let strategy1 = BalancedMMStrategy::new(5.0, 5.0, dec!(0.05));
     let mut runner1 = BacktestRunner::new(
@@ -71,13 +71,11 @@ async fn test_determinism_with_latency() {
     let results2 = runner2.run(loader2).await.unwrap();
 
     assert_eq!(
-        results1.stats.final_value,
-        results2.stats.final_value,
+        results1.stats.final_value, results2.stats.final_value,
         "Determinism: final_value must match"
     );
     assert_eq!(
-        results1.simulator_stats.total_fills,
-        results2.simulator_stats.total_fills,
+        results1.simulator_stats.total_fills, results2.simulator_stats.total_fills,
         "Determinism: total_fills must match"
     );
 }

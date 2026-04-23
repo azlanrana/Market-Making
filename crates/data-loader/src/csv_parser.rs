@@ -1,9 +1,9 @@
 use crate::loader::DataLoader;
+use anyhow::{Context, Result};
 use orderbook::snapshot::OrderBookSnapshot;
 use rust_decimal::Decimal;
 use std::fs::File;
 use std::io::BufReader;
-use anyhow::{Context, Result};
 
 pub struct CsvParser {
     file_path: String,
@@ -39,7 +39,7 @@ impl Iterator for CsvSnapshotIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         let record_res = self.records.next()?;
-        
+
         match record_res {
             Ok(record) => {
                 // Parse required fields
@@ -47,27 +47,27 @@ impl Iterator for CsvSnapshotIterator {
                     Some(v) => v,
                     None => return Some(Err(anyhow::anyhow!("Missing or invalid timestamp"))),
                 };
-                
+
                 let mid_price: f64 = match record.get(1).and_then(|s| s.parse().ok()) {
                     Some(v) => v,
                     None => return Some(Err(anyhow::anyhow!("Missing or invalid mid_price"))),
                 };
-                
+
                 let best_bid: f64 = match record.get(2).and_then(|s| s.parse().ok()) {
                     Some(v) => v,
                     None => return Some(Err(anyhow::anyhow!("Missing or invalid best_bid"))),
                 };
-                
+
                 let best_ask: f64 = match record.get(3).and_then(|s| s.parse().ok()) {
                     Some(v) => v,
                     None => return Some(Err(anyhow::anyhow!("Missing or invalid best_ask"))),
                 };
-                
+
                 let bids_json = match record.get(10) {
                     Some(v) => v,
                     None => return Some(Err(anyhow::anyhow!("Missing bids column"))),
                 };
-                
+
                 let asks_json = match record.get(11) {
                     Some(v) => v,
                     None => return Some(Err(anyhow::anyhow!("Missing asks column"))),
@@ -84,7 +84,7 @@ impl Iterator for CsvSnapshotIterator {
                 .map_err(|e| anyhow::anyhow!("Failed to parse snapshot: {}", e));
 
                 Some(snapshot_res)
-            },
+            }
             Err(e) => Some(Err(anyhow::anyhow!("CSV error: {}", e))),
         }
     }

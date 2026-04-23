@@ -33,11 +33,11 @@
 //!   inventory_stop_pct   — hard flatten threshold (default: 0.65)
 //!   skew_sensitivity     — how aggressively to lean quotes on inventory (default: 6.0)
 
-use mm_core::strategy::{Fill, OrderIntent, OrderType, Strategy, StrategyError};
 use mm_core::market_data::{OrderBook, OrderSide};
+use mm_core::strategy::{Fill, OrderIntent, OrderType, Strategy, StrategyError};
 use mm_core::Portfolio;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::VecDeque;
 
@@ -47,8 +47,8 @@ use std::collections::VecDeque;
 #[derive(Debug)]
 struct FlowEvent {
     ts: f64,
-    buy_vol: f64,   // aggressive buy volume at top of book
-    sell_vol: f64,  // aggressive sell volume at top of book
+    buy_vol: f64,  // aggressive buy volume at top of book
+    sell_vol: f64, // aggressive sell volume at top of book
 }
 
 // ---------------------------------------------------------------------------
@@ -61,8 +61,8 @@ pub struct QueueFarmerV2 {
     backtest_spread_bps: f64,
     is_backtest: bool,
 
-    skew_sensitivity: f64,   // bps of quote shift per 1% inventory imbalance
-    max_skew_bps: f64,       // cap on total skew
+    skew_sensitivity: f64, // bps of quote shift per 1% inventory imbalance
+    max_skew_bps: f64,     // cap on total skew
 
     inventory_stop_pct: f64, // flatten to 50% if inv exceeds this
     inventory_stop_cooldown_sec: f64,
@@ -275,8 +275,16 @@ impl Strategy for QueueFarmerV2 {
 
         // --- Update flow history ---
         let (buy_vol, sell_vol) = self.infer_flow(ob);
-        self.flow_history.push_back(FlowEvent { ts, buy_vol, sell_vol });
-        while self.flow_history.front().map_or(false, |e| e.ts < ts - self.flow_window_sec) {
+        self.flow_history.push_back(FlowEvent {
+            ts,
+            buy_vol,
+            sell_vol,
+        });
+        while self
+            .flow_history
+            .front()
+            .map_or(false, |e| e.ts < ts - self.flow_window_sec)
+        {
             self.flow_history.pop_front();
         }
         self.prev_best_bid = ob.bids.first().map(|(p, _)| *p);
@@ -310,15 +318,25 @@ impl Strategy for QueueFarmerV2 {
                 let total_base_equiv = port.base_balance + port.quote_balance / mid;
                 let target_base = total_base_equiv * dec!(0.5);
                 let (side, amount) = if stop_long {
-                    (OrderSide::Sell, (port.base_balance - target_base).max(Decimal::ZERO))
+                    (
+                        OrderSide::Sell,
+                        (port.base_balance - target_base).max(Decimal::ZERO),
+                    )
                 } else {
-                    (OrderSide::Buy, (target_base - port.base_balance).max(Decimal::ZERO))
+                    (
+                        OrderSide::Buy,
+                        (target_base - port.base_balance).max(Decimal::ZERO),
+                    )
                 };
 
                 if amount > Decimal::ZERO {
                     eprintln!(
                         "[STOP] ts={:.0} inv={:.1}% side={:?} amount={} n={}",
-                        ts, inv * 100.0, side, amount, self.total_taker_stops
+                        ts,
+                        inv * 100.0,
+                        side,
+                        amount,
+                        self.total_taker_stops
                     );
                     intents.push(OrderIntent {
                         side,
@@ -341,9 +359,7 @@ impl Strategy for QueueFarmerV2 {
         // -----------------------------------------------------------------------
         let imbalance = self.flow_imbalance();
 
-        if imbalance.abs() > self.flow_imbalance_threshold
-            && ts >= self.flow_cooldown_until
-        {
+        if imbalance.abs() > self.flow_imbalance_threshold && ts >= self.flow_cooldown_until {
             self.flow_cooldown_until = ts + self.flow_cooldown_sec;
             self.total_flow_pauses += 1;
             eprintln!(
@@ -369,8 +385,8 @@ impl Strategy for QueueFarmerV2 {
         // -----------------------------------------------------------------------
         // 4. Compute quotes: skewed around micro-price
         // -----------------------------------------------------------------------
-        let spread_bps  = self.active_spread_bps();
-        let spread_dec  = Decimal::from_f64_retain(spread_bps / 10000.0).unwrap_or(dec!(0.0002));
+        let spread_bps = self.active_spread_bps();
+        let spread_dec = Decimal::from_f64_retain(spread_bps / 10000.0).unwrap_or(dec!(0.0002));
 
         // Skew: shift effective mid away from current inventory lean
         // Long (inv > 0.5): shift DOWN → our ask gets closer to market, more likely to sell
@@ -386,11 +402,11 @@ impl Strategy for QueueFarmerV2 {
 
         if bid_allowed {
             intents.push(OrderIntent {
-                side:       OrderSide::Buy,
-                price:      effective_mid * (dec!(1) - spread_dec),
-                amount:     self.order_amount,
+                side: OrderSide::Buy,
+                price: effective_mid * (dec!(1) - spread_dec),
+                amount: self.order_amount,
                 order_type: OrderType::Limit,
-                layer:      1,
+                layer: 1,
             });
         } else {
             intents.push(Self::cancel(OrderSide::Buy, 1));
@@ -398,11 +414,11 @@ impl Strategy for QueueFarmerV2 {
 
         if ask_allowed {
             intents.push(OrderIntent {
-                side:       OrderSide::Sell,
-                price:      effective_mid * (dec!(1) + spread_dec),
-                amount:     self.order_amount,
+                side: OrderSide::Sell,
+                price: effective_mid * (dec!(1) + spread_dec),
+                amount: self.order_amount,
                 order_type: OrderType::Limit,
-                layer:      1,
+                layer: 1,
             });
         } else {
             intents.push(Self::cancel(OrderSide::Sell, 1));
@@ -428,10 +444,14 @@ impl Strategy for QueueFarmerV2 {
 
     fn validate_config(&self) -> Result<(), StrategyError> {
         if self.order_amount <= Decimal::ZERO {
-            return Err(StrategyError::InvalidConfig("order_amount must be > 0".into()));
+            return Err(StrategyError::InvalidConfig(
+                "order_amount must be > 0".into(),
+            ));
         }
         if self.spread_bps <= 0.0 || self.backtest_spread_bps <= 0.0 {
-            return Err(StrategyError::InvalidConfig("spread_bps must be > 0".into()));
+            return Err(StrategyError::InvalidConfig(
+                "spread_bps must be > 0".into(),
+            ));
         }
         if !(0.5 < self.inventory_stop_pct && self.inventory_stop_pct < 1.0) {
             return Err(StrategyError::InvalidConfig(

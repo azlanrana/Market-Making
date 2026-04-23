@@ -7,9 +7,9 @@
 //!
 //! Run: cargo test -p mm-engine backtest_s3_queue_farmer_v2 --release -- --ignored --nocapture
 
+use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
 use mm_engine::{BacktestEngine, SimpleFeeModel};
 use queue_farmer_v2::QueueFarmerV2;
-use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::Deserialize;
@@ -72,9 +72,7 @@ async fn backtest_s3_queue_farmer_v2() {
 
     let prefix = std::env::var("S3_PREFIX").unwrap_or_else(|_| format!("{}/", pair));
     let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
-    let max_files = std::env::var("MAX_FILES")
-        .ok()
-        .and_then(|s| s.parse().ok());
+    let max_files = std::env::var("MAX_FILES").ok().and_then(|s| s.parse().ok());
     let key_date_range = parse_s3_inclusive_date_range_from_env()
         .expect("S3_START_DATE / S3_END_DATE: set both as YYYY-MM-DD or neither");
     let max_concurrent = std::env::var("MAX_CONCURRENT_DOWNLOADS")
@@ -89,11 +87,16 @@ async fn backtest_s3_queue_farmer_v2() {
     println!("  Max files: {:?}", max_files);
     println!();
 
-    let loader = S3Loader::new(bucket.clone(), prefix.clone(), region.clone(), max_concurrent)
-        .await
-        .expect("Failed to create S3 loader")
-        .with_max_files(max_files)
-        .with_s3_key_date_range(key_date_range);
+    let loader = S3Loader::new(
+        bucket.clone(),
+        prefix.clone(),
+        region.clone(),
+        max_concurrent,
+    )
+    .await
+    .expect("Failed to create S3 loader")
+    .with_max_files(max_files)
+    .with_s3_key_date_range(key_date_range);
 
     let order_amount = Decimal::from_f64_retain(pair_config.order_amount).unwrap_or(dec!(1.0));
     let tick_size = Decimal::from_f64_retain(pair_config.tick_size).unwrap_or(dec!(0.01));
@@ -107,16 +110,13 @@ async fn backtest_s3_queue_farmer_v2() {
     // Maker rebate -0.75 bps (we receive), taker fee 1.5 bps
     let fee_model = SimpleFeeModel::new(dec!(-0.75), dec!(1.5));
 
-    let mut engine = BacktestEngine::new(
-        strategy,
-        dec!(1000000),
-        dec!(1),
-        fee_model,
-        tick_size,
-    );
+    let mut engine = BacktestEngine::new(strategy, dec!(1000000), dec!(1), fee_model, tick_size);
 
     println!("Strategy: QueueFarmer v2.0 (flow filter, 65/35 inv stop)");
-    println!("Config: $1M AUM, -0.75 bps maker rebate, {} order size", order_amount);
+    println!(
+        "Config: $1M AUM, -0.75 bps maker rebate, {} order size",
+        order_amount
+    );
     println!("Downloading data from S3...\n");
 
     match engine.run(loader).await {

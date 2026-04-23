@@ -6,11 +6,21 @@ use rust_decimal_macros::dec;
 fn snapshot(bids: Vec<(f64, f64)>, asks: Vec<(f64, f64)>, ts: f64) -> OrderBookSnapshot {
     let bids_d: Vec<(Decimal, Decimal)> = bids
         .into_iter()
-        .map(|(p, q)| (Decimal::from_f64_retain(p).unwrap(), Decimal::from_f64_retain(q).unwrap()))
+        .map(|(p, q)| {
+            (
+                Decimal::from_f64_retain(p).unwrap(),
+                Decimal::from_f64_retain(q).unwrap(),
+            )
+        })
         .collect();
     let asks_d: Vec<(Decimal, Decimal)> = asks
         .into_iter()
-        .map(|(p, q)| (Decimal::from_f64_retain(p).unwrap(), Decimal::from_f64_retain(q).unwrap()))
+        .map(|(p, q)| {
+            (
+                Decimal::from_f64_retain(p).unwrap(),
+                Decimal::from_f64_retain(q).unwrap(),
+            )
+        })
         .collect();
     OrderBookSnapshot::new(ts, bids_d, asks_d)
 }
@@ -41,11 +51,7 @@ fn test_limit_fill_at_maker_price() {
     );
     engine.submit(order, &book1);
 
-    let book2 = snapshot(
-        vec![(1000.0, 10.0)],
-        vec![(999.0, 5.0), (1000.0, 3.0)],
-        2.0,
-    );
+    let book2 = snapshot(vec![(1000.0, 10.0)], vec![(999.0, 5.0), (1000.0, 3.0)], 2.0);
     let fills = engine.process_book_update(&book2);
     assert_eq!(fills.len(), 1);
     assert_eq!(fills[0].price, dec!(1001));
@@ -60,11 +66,7 @@ fn test_crossed_book_fill_uses_removed_depth_delta() {
         delta_trade_fraction: 0.5,
         ..QueueModelConfig::default()
     });
-    let book1 = snapshot(
-        vec![(1000.0, 10.0)],
-        vec![(1001.0, 10.0)],
-        1.0,
-    );
+    let book1 = snapshot(vec![(1000.0, 10.0)], vec![(1001.0, 10.0)], 1.0);
     let prime = engine.process_book_update(&book1);
     assert!(prime.is_empty());
 
@@ -79,11 +81,7 @@ fn test_crossed_book_fill_uses_removed_depth_delta() {
     );
     engine.submit(order, &book1);
 
-    let book2 = snapshot(
-        vec![(1000.0, 10.0)],
-        vec![(999.0, 5.0), (1000.0, 5.0)],
-        2.0,
-    );
+    let book2 = snapshot(vec![(1000.0, 10.0)], vec![(999.0, 5.0), (1000.0, 5.0)], 2.0);
     let fills = engine.process_book_update(&book2);
     assert_eq!(fills.len(), 1);
     assert_eq!(fills[0].price, dec!(1001));
@@ -98,11 +96,7 @@ fn test_crossed_book_does_not_fill_without_removed_depth() {
         delta_trade_fraction: 1.0,
         ..QueueModelConfig::default()
     });
-    let book1 = snapshot(
-        vec![(1000.0, 10.0)],
-        vec![(1002.0, 10.0)],
-        1.0,
-    );
+    let book1 = snapshot(vec![(1000.0, 10.0)], vec![(1002.0, 10.0)], 1.0);
     let prime = engine.process_book_update(&book1);
     assert!(prime.is_empty());
 
@@ -117,11 +111,7 @@ fn test_crossed_book_does_not_fill_without_removed_depth() {
     );
     engine.submit(order, &book1);
 
-    let book2 = snapshot(
-        vec![(1000.0, 10.0)],
-        vec![(999.0, 5.0), (1000.0, 5.0)],
-        2.0,
-    );
+    let book2 = snapshot(vec![(1000.0, 10.0)], vec![(999.0, 5.0), (1000.0, 5.0)], 2.0);
     let fills = engine.process_book_update(&book2);
     assert!(fills.is_empty());
 }
@@ -179,7 +169,11 @@ fn test_partial_fill_then_complete() {
     );
     engine.submit(order, &book1);
 
-    let book2 = snapshot(vec![(1000.0, 2.0)], vec![(1000.0, 2.0), (1001.0, 10.0)], 2.0);
+    let book2 = snapshot(
+        vec![(1000.0, 2.0)],
+        vec![(1000.0, 2.0), (1001.0, 10.0)],
+        2.0,
+    );
     let fills1 = engine.process_book_update(&book2);
     assert_eq!(fills1.len(), 1);
     assert_eq!(fills1[0].amount, dec!(3));
@@ -193,11 +187,7 @@ fn test_partial_fill_then_complete() {
 #[test]
 fn test_cancel_by_id() {
     let mut engine = MatchingEngine::new();
-    let book = snapshot(
-        vec![(1000.0, 10.0)],
-        vec![(1001.0, 10.0)],
-        1.0,
-    );
+    let book = snapshot(vec![(1000.0, 10.0)], vec![(1001.0, 10.0)], 1.0);
     let order = Order::new(
         "o1".to_string(),
         Side::Buy,

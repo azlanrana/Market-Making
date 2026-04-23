@@ -4,8 +4,8 @@
 //! Horizons: 100ms, 500ms, 1s, 5s
 
 use mm_core_types::{Fill, FillReason, Side};
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 
 /// Pending fill awaiting future mid prices for markout resolution.
 #[derive(Debug, Clone)]

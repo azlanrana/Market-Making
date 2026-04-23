@@ -30,11 +30,11 @@
 //!   inventory_stop_pct       — 0.65
 //!   skew_sensitivity         — 6.0 (bps per 1% inventory deviation)
 
-use mm_core::strategy::{Fill, OrderIntent, OrderType, Strategy, StrategyError};
 use mm_core::market_data::{OrderBook, OrderSide};
+use mm_core::strategy::{Fill, OrderIntent, OrderType, Strategy, StrategyError};
 use mm_core::Portfolio;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
 pub struct QueueFarmerV3 {
@@ -73,12 +73,12 @@ impl QueueFarmerV3 {
     pub fn new(order_amount: Decimal) -> Self {
         Self {
             order_amount,
-            spread_bps: 1.0,          // Price-improving vs 0.03 bps real spread → queue_pos = 50% of touch
+            spread_bps: 1.0, // Price-improving vs 0.03 bps real spread → queue_pos = 50% of touch
             backtest_spread_bps: 1.0, // Same in backtest — we want to simulate price-improving fills
             is_backtest: false,
 
             skew_sensitivity: 6.0,
-            max_skew_bps: 10.0,       // Tighter cap: at 1 bps spread, 10 bps skew is already 10x the spread
+            max_skew_bps: 10.0, // Tighter cap: at 1 bps spread, 10 bps skew is already 10x the spread
 
             inventory_stop_pct: 0.65,
             inventory_stop_cooldown_sec: 60.0,
@@ -132,7 +132,11 @@ impl QueueFarmerV3 {
     // -----------------------------------------------------------------------
 
     fn active_spread_bps(&self) -> f64 {
-        if self.is_backtest { self.backtest_spread_bps } else { self.spread_bps }
+        if self.is_backtest {
+            self.backtest_spread_bps
+        } else {
+            self.spread_bps
+        }
     }
 
     fn micro_price(ob: &OrderBook) -> Option<Decimal> {
@@ -148,7 +152,9 @@ impl QueueFarmerV3 {
     fn inv_pct(port: &Portfolio, mid: Decimal) -> f64 {
         let base_val = port.base_balance * mid;
         let total = base_val + port.quote_balance;
-        if total <= Decimal::ZERO { return 0.5; }
+        if total <= Decimal::ZERO {
+            return 0.5;
+        }
         (base_val / total).to_f64().unwrap_or(0.5).clamp(0.0, 1.0)
     }
 
@@ -156,16 +162,22 @@ impl QueueFarmerV3 {
     /// This is computable from a single snapshot and reflects structural book skew,
     /// not flow. Less reactive than trade data, but honest about what we have.
     fn book_imbalance(&self, ob: &OrderBook) -> f64 {
-        let bid_qty: Decimal = ob.bids.iter()
+        let bid_qty: Decimal = ob
+            .bids
+            .iter()
             .take(self.book_imbalance_levels)
             .map(|(_, q)| *q)
             .sum();
-        let ask_qty: Decimal = ob.asks.iter()
+        let ask_qty: Decimal = ob
+            .asks
+            .iter()
             .take(self.book_imbalance_levels)
             .map(|(_, q)| *q)
             .sum();
         let total = bid_qty + ask_qty;
-        if total <= Decimal::ZERO { return 0.0; }
+        if total <= Decimal::ZERO {
+            return 0.0;
+        }
         ((bid_qty - ask_qty) / total).to_f64().unwrap_or(0.0)
     }
 
@@ -181,7 +193,9 @@ impl QueueFarmerV3 {
 }
 
 impl Strategy for QueueFarmerV3 {
-    fn name(&self) -> &str { "queue_farmer_v3" }
+    fn name(&self) -> &str {
+        "queue_farmer_v3"
+    }
 
     fn on_orderbook_update(
         &mut self,
@@ -205,7 +219,7 @@ impl Strategy for QueueFarmerV3 {
         // 1. Hard inventory stop — only after warm-up
         // -----------------------------------------------------------------------
         if warmed_up {
-            let stop_long  = inv > self.inventory_stop_pct;
+            let stop_long = inv > self.inventory_stop_pct;
             let stop_short = inv < (1.0 - self.inventory_stop_pct);
 
             if stop_long || stop_short {
@@ -224,9 +238,15 @@ impl Strategy for QueueFarmerV3 {
                     let total_base_equiv = port.base_balance + port.quote_balance / mid;
                     let target_base = total_base_equiv * dec!(0.5);
                     let (side, amount) = if stop_long {
-                        (OrderSide::Sell, (port.base_balance - target_base).max(Decimal::ZERO))
+                        (
+                            OrderSide::Sell,
+                            (port.base_balance - target_base).max(Decimal::ZERO),
+                        )
                     } else {
-                        (OrderSide::Buy, (target_base - port.base_balance).max(Decimal::ZERO))
+                        (
+                            OrderSide::Buy,
+                            (target_base - port.base_balance).max(Decimal::ZERO),
+                        )
                     };
 
                     if amount > Decimal::ZERO {
@@ -288,11 +308,11 @@ impl Strategy for QueueFarmerV3 {
 
         if bid_allowed {
             intents.push(OrderIntent {
-                side:       OrderSide::Buy,
-                price:      effective_mid * (dec!(1) - spread_dec),
-                amount:     self.order_amount,
+                side: OrderSide::Buy,
+                price: effective_mid * (dec!(1) - spread_dec),
+                amount: self.order_amount,
                 order_type: OrderType::Limit,
-                layer:      1,
+                layer: 1,
             });
         } else {
             intents.push(Self::cancel(OrderSide::Buy, 1));
@@ -300,11 +320,11 @@ impl Strategy for QueueFarmerV3 {
 
         if ask_allowed {
             intents.push(OrderIntent {
-                side:       OrderSide::Sell,
-                price:      effective_mid * (dec!(1) + spread_dec),
-                amount:     self.order_amount,
+                side: OrderSide::Sell,
+                price: effective_mid * (dec!(1) + spread_dec),
+                amount: self.order_amount,
                 order_type: OrderType::Limit,
-                layer:      1,
+                layer: 1,
             });
         } else {
             intents.push(Self::cancel(OrderSide::Sell, 1));
@@ -314,16 +334,22 @@ impl Strategy for QueueFarmerV3 {
     }
 
     fn on_fill(&mut self, fill: &Fill, _port: &mut Portfolio, _ts: f64) {
-        if fill.layer == 0 { return; }
+        if fill.layer == 0 {
+            return;
+        }
         self.total_maker_fills += 1;
     }
 
     fn validate_config(&self) -> Result<(), StrategyError> {
         if self.order_amount <= Decimal::ZERO {
-            return Err(StrategyError::InvalidConfig("order_amount must be > 0".into()));
+            return Err(StrategyError::InvalidConfig(
+                "order_amount must be > 0".into(),
+            ));
         }
         if self.spread_bps <= 0.0 || self.backtest_spread_bps <= 0.0 {
-            return Err(StrategyError::InvalidConfig("spread_bps must be > 0".into()));
+            return Err(StrategyError::InvalidConfig(
+                "spread_bps must be > 0".into(),
+            ));
         }
         if !(0.5 < self.inventory_stop_pct && self.inventory_stop_pct < 1.0) {
             return Err(StrategyError::InvalidConfig(

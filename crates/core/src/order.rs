@@ -35,7 +35,15 @@ pub struct Order {
 }
 
 impl Order {
-    pub fn new(id: String, side: Side, price: Decimal, amount: Decimal, order_type: OrderType, layer: u32, created_ts: f64) -> Self {
+    pub fn new(
+        id: String,
+        side: Side,
+        price: Decimal,
+        amount: Decimal,
+        order_type: OrderType,
+        layer: u32,
+        created_ts: f64,
+    ) -> Self {
         Self {
             id,
             side,
@@ -54,6 +62,9 @@ impl Order {
     }
 
     pub fn is_active(&self) -> bool {
-        matches!(self.status, OrderStatus::Open | OrderStatus::PartiallyFilled)
+        matches!(
+            self.status,
+            OrderStatus::Open | OrderStatus::PartiallyFilled
+        )
     }
 }

@@ -2,14 +2,14 @@ use orderbook::order::{Order, OrderSide, OrderStatus};
 use orderbook::snapshot::OrderBookSnapshot;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 use tracing::warn;
 
 /// Order Book Simulator for realistic backtesting
-/// 
+///
 /// This simulator maintains a virtual order book and tracks queue positions
 /// for accurate fill simulation based on L2 order book data.
-/// 
+///
 /// Key features:
 /// - Maintains virtual order book with all orders
 /// - Tracks queue position for each order
@@ -18,16 +18,16 @@ use tracing::warn;
 pub struct OrderBookSimulator {
     /// Track all orders by ID
     orders: HashMap<String, Order>,
-    
+
     /// Track orders by price level (for queue position calculation)
     /// bids: price -> list of order IDs (sorted by timestamp)
     /// asks: price -> list of order IDs (sorted by timestamp)
     bids_by_price: BTreeMap<Decimal, Vec<String>>,
     asks_by_price: BTreeMap<Decimal, Vec<String>>,
-    
+
     /// Track order IDs by price (for fast lookup)
     order_prices: HashMap<String, Decimal>,
-    
+
     /// Statistics
     total_fills: u64,
     total_partial_fills: u64,
@@ -54,7 +54,11 @@ impl OrderBookSimulator {
     }
 
     /// Add an order to the book with optional market queue (size ahead at same price from exchange book)
-    pub fn add_order_with_market_queue(&mut self, mut order: Order, market_queue_ahead: Decimal) -> bool {
+    pub fn add_order_with_market_queue(
+        &mut self,
+        mut order: Order,
+        market_queue_ahead: Decimal,
+    ) -> bool {
         order.queue_position = market_queue_ahead;
         self.add_order_inner(order)
     }
@@ -103,12 +107,7 @@ impl OrderBookSimulator {
         true
     }
 
-    fn insert_order_at_price_buy(
-        &mut self,
-        price: Decimal,
-        order_id: String,
-        timestamp: f64,
-    ) {
+    fn insert_order_at_price_buy(&mut self, price: Decimal, order_id: String, timestamp: f64) {
         let order_list = self.bids_by_price.entry(price).or_insert_with(Vec::new);
 
         // Insert in chronological order (FIFO at same price)
@@ -128,12 +127,7 @@ impl OrderBookSimulator {
         }
     }
 
-    fn insert_order_at_price_sell(
-        &mut self,
-        price: Decimal,
-        order_id: String,
-        timestamp: f64,
-    ) {
+    fn insert_order_at_price_sell(&mut self, price: Decimal, order_id: String, timestamp: f64) {
         let order_list = self.asks_by_price.entry(price).or_insert_with(Vec::new);
 
         // Insert in chronological order (FIFO at same price)
@@ -194,12 +188,9 @@ impl OrderBookSimulator {
     }
 
     /// Process a market snapshot and check for fills
-    /// 
+    ///
     /// Returns list of fills that occurred
-    pub fn process_market_snapshot(
-        &mut self,
-        snapshot: &OrderBookSnapshot,
-    ) -> Vec<Fill> {
+    pub fn process_market_snapshot(&mut self, snapshot: &OrderBookSnapshot) -> Vec<Fill> {
         let mut fills = Vec::new();
 
         // Process fills for buy orders (our bids)
@@ -306,7 +297,11 @@ impl OrderBookSimulator {
                         if order.status == OrderStatus::PartiallyFilled {
                             self.total_partial_fills += 1;
                         } else if order.status == OrderStatus::Filled {
-                            filled_or_cancelled_orders.push((order_id.to_string(), OrderSide::Buy, *bid_price));
+                            filled_or_cancelled_orders.push((
+                                order_id.to_string(),
+                                OrderSide::Buy,
+                                *bid_price,
+                            ));
                         }
                         self.update_queue_positions_at_price(*bid_price, OrderSide::Buy);
                     }
@@ -389,7 +384,11 @@ impl OrderBookSimulator {
                 };
 
                 if order.is_filled() || order.is_cancelled() {
-                    filled_or_cancelled_orders.push((order_id.clone(), OrderSide::Sell, *ask_price));
+                    filled_or_cancelled_orders.push((
+                        order_id.clone(),
+                        OrderSide::Sell,
+                        *ask_price,
+                    ));
                     continue;
                 }
 
@@ -418,7 +417,11 @@ impl OrderBookSimulator {
                         if order.status == OrderStatus::PartiallyFilled {
                             self.total_partial_fills += 1;
                         } else if order.status == OrderStatus::Filled {
-                            filled_or_cancelled_orders.push((order_id.to_string(), OrderSide::Sell, *ask_price));
+                            filled_or_cancelled_orders.push((
+                                order_id.to_string(),
+                                OrderSide::Sell,
+                                *ask_price,
+                            ));
                         }
                         self.update_queue_positions_at_price(*ask_price, OrderSide::Sell);
                     }
@@ -439,7 +442,7 @@ impl OrderBookSimulator {
     }
 
     /// Update queue positions for all orders at a specific price level
-    /// 
+    ///
     /// Queue position = sum of sizes of orders ahead of us at the same price
     /// This matches Hummingbot's _update_queue_positions_at_price() logic exactly
     fn update_queue_positions_at_price(&mut self, price: Decimal, side: OrderSide) {
@@ -482,16 +485,13 @@ impl OrderBookSimulator {
     }
 
     pub fn get_active_orders(&self) -> Vec<&Order> {
-        self.orders
-            .values()
-            .filter(|o| o.is_active())
-            .collect()
+        self.orders.values().filter(|o| o.is_active()).collect()
     }
 
     pub fn get_order(&self, order_id: &str) -> Option<&Order> {
         self.orders.get(order_id)
     }
-    
+
     pub fn get_order_mut(&mut self, order_id: &str) -> Option<&mut Order> {
         self.orders.get_mut(order_id)
     }
@@ -499,7 +499,8 @@ impl OrderBookSimulator {
     pub fn get_statistics(&self) -> SimulatorStats {
         let active_orders = self.get_active_orders().len();
         let filled_orders = self.orders.values().filter(|o| o.is_filled()).count();
-        let partially_filled = self.orders
+        let partially_filled = self
+            .orders
             .values()
             .filter(|o| matches!(o.status, OrderStatus::PartiallyFilled))
             .count();

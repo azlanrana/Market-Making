@@ -1,11 +1,11 @@
-pub mod simulator;
-pub mod portfolio;
 pub mod latency;
-pub mod runner;
 pub mod metrics;
+pub mod portfolio;
+pub mod runner;
+pub mod simulator;
 
-pub use simulator::OrderBookSimulator;
-pub use portfolio::BacktestPortfolio;
-pub use latency::{LatencySimulator, LatencyConfig, LatencyType};
-pub use runner::BacktestRunner;
+pub use latency::{LatencyConfig, LatencySimulator, LatencyType};
 pub use metrics::MetricsCollector;
+pub use portfolio::BacktestPortfolio;
+pub use runner::BacktestRunner;
+pub use simulator::OrderBookSimulator;

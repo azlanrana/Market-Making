@@ -36,27 +36,22 @@ pub fn check_available_dates(
     println!("Connecting to SFTP...");
     let tcp = TcpStream::connect(format!("{}:22", sftp_host))
         .with_context(|| format!("Failed to connect to {}", sftp_host))?;
-    
-    let mut sess = Session::new()
-        .map_err(|e| anyhow::anyhow!("Failed to create SSH session: {:?}", e))?;
-    
+
+    let mut sess =
+        Session::new().map_err(|e| anyhow::anyhow!("Failed to create SSH session: {:?}", e))?;
+
     sess.set_tcp_stream(tcp);
-    sess.handshake()
-        .with_context(|| "SSH handshake failed")?;
-    
-    sess.userauth_pubkey_file(
-        sftp_username,
-        None,
-        Path::new(sftp_key_path),
-        None,
-    )
-    .with_context(|| format!("Authentication failed for user {}", sftp_username))?;
-    
+    sess.handshake().with_context(|| "SSH handshake failed")?;
+
+    sess.userauth_pubkey_file(sftp_username, None, Path::new(sftp_key_path), None)
+        .with_context(|| format!("Authentication failed for user {}", sftp_username))?;
+
     if !sess.authenticated() {
         return Err(anyhow::anyhow!("Authentication failed"));
     }
 
-    let sftp = sess.sftp()
+    let sftp = sess
+        .sftp()
         .with_context(|| "Failed to create SFTP session")?;
 
     // Check available years
@@ -64,7 +59,8 @@ pub fn check_available_dates(
     let years_path = format!("{}/", base_path);
     match sftp.readdir(Path::new(&years_path)) {
         Ok(entries) => {
-            let mut years: Vec<String> = entries.iter()
+            let mut years: Vec<String> = entries
+                .iter()
                 .filter_map(|(path, _)| {
                     path.file_name()
                         .and_then(|n| n.to_str())
@@ -73,12 +69,12 @@ pub fn check_available_dates(
                 .filter(|name| name.chars().all(|c| c.is_ascii_digit()) && name.len() == 4)
                 .collect();
             years.sort();
-            
+
             if years.is_empty() {
                 println!("No years found in {}", years_path);
                 return Ok(());
             }
-            
+
             println!("Found years: {}", years.join(", "));
             println!();
 
@@ -100,7 +96,7 @@ pub fn check_available_dates(
         Err(e) => {
             println!("Error reading years directory: {}", e);
             println!("Trying to list base path directly...");
-            
+
             // Try listing the base path
             match sftp.readdir(Path::new(&base_path)) {
                 Ok(entries) => {
@@ -126,18 +122,14 @@ pub fn check_available_dates(
     Ok(())
 }
 
-fn check_year(
-    sftp: &ssh2::Sftp,
-    base_path: &str,
-    year: &str,
-    trading_pair: &str,
-) -> Result<()> {
+fn check_year(sftp: &ssh2::Sftp, base_path: &str, year: &str, trading_pair: &str) -> Result<()> {
     let year_path = format!("{}/{}/", base_path, year);
-    
+
     // Check available months
     match sftp.readdir(Path::new(&year_path)) {
         Ok(entries) => {
-            let mut months: Vec<u32> = entries.iter()
+            let mut months: Vec<u32> = entries
+                .iter()
                 .filter_map(|(path, _)| {
                     path.file_name()
                         .and_then(|n| n.to_str())
@@ -146,15 +138,15 @@ fn check_year(
                 })
                 .collect();
             months.sort();
-            
+
             if months.is_empty() {
                 println!("No months found for year {}", year);
                 return Ok(());
             }
-            
+
             println!("Found months: {:?}", months);
             println!();
-            
+
             // Check each month for available days
             for month in months {
                 check_month(sftp, base_path, year, month, trading_pair)?;
@@ -164,7 +156,7 @@ fn check_year(
             println!("Error reading months for {}: {}", year, e);
         }
     }
-    
+
     Ok(())
 }
 
@@ -177,10 +169,11 @@ fn check_month(
 ) -> Result<()> {
     // Crypto.com uses unpadded month/day: 2025/1/1 not 2025/01/01
     let month_path = format!("{}/{}/{}/", base_path, year, month);
-    
+
     match sftp.readdir(Path::new(&month_path)) {
         Ok(entries) => {
-            let mut days: Vec<u32> = entries.iter()
+            let mut days: Vec<u32> = entries
+                .iter()
                 .filter_map(|(path, _)| {
                     path.file_name()
                         .and_then(|n| n.to_str())
@@ -189,21 +182,24 @@ fn check_month(
                 })
                 .collect();
             days.sort();
-            
+
             if days.is_empty() {
                 return Ok(());
             }
-            
+
             // Check which days have data for the trading pair
             let mut days_with_data = Vec::new();
-            
+
             for day in &days {
-                let day_path = format!("{}/{}/{}/{}/cdc/{}", 
-                    base_path, year, month, day, trading_pair);
-                
+                let day_path = format!(
+                    "{}/{}/{}/{}/cdc/{}",
+                    base_path, year, month, day, trading_pair
+                );
+
                 match sftp.readdir(Path::new(&day_path)) {
                     Ok(files) => {
-                        let file_count = files.iter()
+                        let file_count = files
+                            .iter()
                             .filter(|(path, _)| {
                                 path.file_name()
                                     .and_then(|n| n.to_str())
@@ -211,7 +207,7 @@ fn check_month(
                                     .unwrap_or(false)
                             })
                             .count();
-                        
+
                         if file_count > 0 {
                             days_with_data.push((*day, file_count));
                         }
@@ -221,20 +217,30 @@ fn check_month(
                     }
                 }
             }
-            
+
             if !days_with_data.is_empty() {
-                println!("{}-{:02}: {} days with data", year, month, days_with_data.len());
-                println!("  Days: {}", 
-                    days_with_data.iter()
+                println!(
+                    "{}-{:02}: {} days with data",
+                    year,
+                    month,
+                    days_with_data.len()
+                );
+                println!(
+                    "  Days: {}",
+                    days_with_data
+                        .iter()
                         .map(|(d, _)| d.to_string())
                         .collect::<Vec<_>>()
-                        .join(", "));
-                
+                        .join(", ")
+                );
+
                 // Show file counts for first and last day
                 if let Some((first_day, first_count)) = days_with_data.first() {
                     if let Some((last_day, last_count)) = days_with_data.last() {
-                        println!("  Files: Day {} = {}, Day {} = {}", 
-                            first_day, first_count, last_day, last_count);
+                        println!(
+                            "  Files: Day {} = {}, Day {} = {}",
+                            first_day, first_count, last_day, last_count
+                        );
                     }
                 }
                 println!();
@@ -244,7 +250,6 @@ fn check_month(
             // Month directory doesn't exist
         }
     }
-    
+
     Ok(())
 }
-

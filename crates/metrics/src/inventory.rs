@@ -1,7 +1,7 @@
 //! Inventory exposure and inventory PnL drift tracking.
 
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 
 #[derive(Debug, Clone, Default)]
 pub struct InventoryTracker {
@@ -94,4 +94,3 @@ impl InventoryTracker {
         (inventory_pnl, total_pnl, ratio)
     }
 }
-

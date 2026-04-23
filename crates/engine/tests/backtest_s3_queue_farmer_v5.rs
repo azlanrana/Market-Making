@@ -7,9 +7,9 @@
 //!
 //! Run: cargo test -p mm-engine backtest_s3_queue_farmer_v5 --release -- --ignored --nocapture
 
+use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
 use mm_engine::{BacktestEngine, QueueModelConfig, SimpleFeeModel};
 use queue_farmer_v4::QueueFarmerV4;
-use data_loader::{parse_s3_inclusive_date_range_from_env, S3Loader};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::Deserialize;
@@ -72,9 +72,7 @@ async fn backtest_s3_queue_farmer_v5() {
 
     let prefix = std::env::var("S3_PREFIX").unwrap_or_else(|_| format!("{}/", pair));
     let region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string());
-    let max_files = std::env::var("MAX_FILES")
-        .ok()
-        .and_then(|s| s.parse().ok());
+    let max_files = std::env::var("MAX_FILES").ok().and_then(|s| s.parse().ok());
     let key_date_range = parse_s3_inclusive_date_range_from_env()
         .expect("S3_START_DATE / S3_END_DATE: set both as YYYY-MM-DD or neither");
     let max_concurrent = std::env::var("MAX_CONCURRENT_DOWNLOADS")
@@ -89,11 +87,16 @@ async fn backtest_s3_queue_farmer_v5() {
     println!("  Max files: {:?}", max_files);
     println!();
 
-    let loader = S3Loader::new(bucket.clone(), prefix.clone(), region.clone(), max_concurrent)
-        .await
-        .expect("Failed to create S3 loader")
-        .with_max_files(max_files)
-        .with_s3_key_date_range(key_date_range);
+    let loader = S3Loader::new(
+        bucket.clone(),
+        prefix.clone(),
+        region.clone(),
+        max_concurrent,
+    )
+    .await
+    .expect("Failed to create S3 loader")
+    .with_max_files(max_files)
+    .with_s3_key_date_range(key_date_range);
 
     let order_amount = Decimal::from_f64_retain(pair_config.order_amount).unwrap_or(dec!(1.0));
     let tick_size = Decimal::from_f64_retain(pair_config.tick_size).unwrap_or(dec!(0.01));
@@ -121,17 +124,14 @@ async fn backtest_s3_queue_farmer_v5() {
         ..QueueModelConfig::default()
     };
 
-    let mut engine = BacktestEngine::new(
-        strategy,
-        dec!(1000000),
-        dec!(1),
-        fee_model,
-        tick_size,
-    )
-    .with_queue_config(queue_config);
+    let mut engine = BacktestEngine::new(strategy, dec!(1000000), dec!(1), fee_model, tick_size)
+        .with_queue_config(queue_config);
 
     println!("Strategy: QueueFarmer v5.0 (v4 logic + colo queue model)");
-    println!("Config: $1M AUM, -0.75 bps maker, {} size, touch_queue_pct=0.2", order_amount);
+    println!(
+        "Config: $1M AUM, -0.75 bps maker, {} size, touch_queue_pct=0.2",
+        order_amount
+    );
     println!("Downloading data from S3...\n");
 
     match engine.run(loader).await {
@@ -160,18 +160,29 @@ async fn backtest_s3_queue_farmer_v5() {
 
             // Spread distribution — 0, 1, 2 ticks; collapse 3+
             let total_spread_snapshots: u64 = results.spread_distribution.values().sum();
-            let pct = |c: u64| if total_spread_snapshots > 0 {
-                c as f64 / total_spread_snapshots as f64 * 100.0
-            } else { 0.0 };
+            let pct = |c: u64| {
+                if total_spread_snapshots > 0 {
+                    c as f64 / total_spread_snapshots as f64 * 100.0
+                } else {
+                    0.0
+                }
+            };
             let c0 = results.spread_distribution.get(&0).copied().unwrap_or(0);
             let c1 = results.spread_distribution.get(&1).copied().unwrap_or(0);
             let c2 = results.spread_distribution.get(&2).copied().unwrap_or(0);
-            let c3plus: u64 = results.spread_distribution.iter()
-                .filter(|(k, _)| **k >= 3).map(|(_, v)| *v).sum();
+            let c3plus: u64 = results
+                .spread_distribution
+                .iter()
+                .filter(|(k, _)| **k >= 3)
+                .map(|(_, v)| *v)
+                .sum();
 
             println!("=== QueueFarmer v5 S3 Backtest Results ===");
             println!("Backtest duration: {:.2}s", elapsed.as_secs_f64());
-            println!("Simulated period: {:.1} hours ({:.2} days)", sim_hours, sim_days);
+            println!(
+                "Simulated period: {:.1} hours ({:.2} days)",
+                sim_hours, sim_days
+            );
             println!("Snapshots processed: {}", results.snapshot_count);
 
             println!("\n--- Backtest Assumptions ---");
@@ -192,7 +203,10 @@ async fn backtest_s3_queue_farmer_v5() {
             println!("\n--- Portfolio Performance ---");
             println!("Total PnL:        ${}", pnl_display);
             println!("Realized PnL:     ${}", realized_display);
-            println!("Unrealized PnL:   ${} (inventory mark-to-market)", unrealized);
+            println!(
+                "Unrealized PnL:   ${} (inventory mark-to-market)",
+                unrealized
+            );
 
             println!("\n--- Risk Metrics ---");
             println!("Win rate:         {:.1}%", s.win_rate * 100.0);

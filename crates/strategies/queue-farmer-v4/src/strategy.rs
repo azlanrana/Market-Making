@@ -34,11 +34,11 @@
 //!   inventory_stop_pct      — hard taker flatten at 65/35
 //!   skew_levels             — how aggressively to suppress one side on inventory
 
-use mm_core::strategy::{Fill, OrderIntent, OrderType, Strategy, StrategyError};
 use mm_core::market_data::{OrderBook, OrderSide};
+use mm_core::strategy::{Fill, OrderIntent, OrderType, Strategy, StrategyError};
 use mm_core::Portfolio;
-use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use std::collections::VecDeque;
 
@@ -215,15 +215,29 @@ impl QueueFarmerV4 {
     fn inv_pct(port: &Portfolio, mid: Decimal) -> f64 {
         let base_val = port.base_balance * mid;
         let total = base_val + port.quote_balance;
-        if total <= Decimal::ZERO { return 0.5; }
+        if total <= Decimal::ZERO {
+            return 0.5;
+        }
         (base_val / total).to_f64().unwrap_or(0.5).clamp(0.0, 1.0)
     }
 
     fn book_imbalance(&self, ob: &OrderBook) -> f64 {
-        let bid_qty: Decimal = ob.bids.iter().take(self.book_imbalance_levels).map(|(_, q)| *q).sum();
-        let ask_qty: Decimal = ob.asks.iter().take(self.book_imbalance_levels).map(|(_, q)| *q).sum();
+        let bid_qty: Decimal = ob
+            .bids
+            .iter()
+            .take(self.book_imbalance_levels)
+            .map(|(_, q)| *q)
+            .sum();
+        let ask_qty: Decimal = ob
+            .asks
+            .iter()
+            .take(self.book_imbalance_levels)
+            .map(|(_, q)| *q)
+            .sum();
         let total = bid_qty + ask_qty;
-        if total <= Decimal::ZERO { return 0.0; }
+        if total <= Decimal::ZERO {
+            return 0.0;
+        }
         ((bid_qty - ask_qty) / total).to_f64().unwrap_or(0.0)
     }
 
@@ -231,22 +245,38 @@ impl QueueFarmerV4 {
         let best_bid = ob.bids.first().map(|(p, _)| *p)?;
         let best_ask = ob.asks.first().map(|(p, _)| *p)?;
         let mid = (best_bid + best_ask) / dec!(2);
-        if mid <= Decimal::ZERO { return None; }
-        Some(((best_ask - best_bid) / mid * dec!(10000)).to_f64().unwrap_or(0.0))
+        if mid <= Decimal::ZERO {
+            return None;
+        }
+        Some(
+            ((best_ask - best_bid) / mid * dec!(10000))
+                .to_f64()
+                .unwrap_or(0.0),
+        )
     }
 
     fn typical_spread(&self) -> Option<f64> {
-        if self.spread_history.len() < 10 { return None; }
+        if self.spread_history.len() < 10 {
+            return None;
+        }
         let sum: f64 = self.spread_history.iter().sum();
         Some(sum / self.spread_history.len() as f64)
     }
 
     /// Microprice: volume-weighted mid. (bid*ask_qty + ask*bid_qty) / (bid_qty + ask_qty)
     fn microprice(ob: &OrderBook) -> Option<f64> {
-        let (bid, bid_qty) = ob.bids.first().and_then(|(p, q)| Some((p.to_f64()?, q.to_f64()?)))?;
-        let (ask, ask_qty) = ob.asks.first().and_then(|(p, q)| Some((p.to_f64()?, q.to_f64()?)))?;
+        let (bid, bid_qty) = ob
+            .bids
+            .first()
+            .and_then(|(p, q)| Some((p.to_f64()?, q.to_f64()?)))?;
+        let (ask, ask_qty) = ob
+            .asks
+            .first()
+            .and_then(|(p, q)| Some((p.to_f64()?, q.to_f64()?)))?;
         let total = bid_qty + ask_qty;
-        if total <= 0.0 { return None; }
+        if total <= 0.0 {
+            return None;
+        }
         Some((bid * ask_qty + ask * bid_qty) / total)
     }
 
@@ -262,7 +292,9 @@ impl QueueFarmerV4 {
 }
 
 impl Strategy for QueueFarmerV4 {
-    fn name(&self) -> &str { "queue_farmer_v4" }
+    fn name(&self) -> &str {
+        "queue_farmer_v4"
+    }
 
     fn on_orderbook_update(
         &mut self,
@@ -315,7 +347,7 @@ impl Strategy for QueueFarmerV4 {
         // 1. Hard inventory stop
         // -----------------------------------------------------------------------
         if warmed_up {
-            let stop_long  = inv > self.inventory_stop_pct;
+            let stop_long = inv > self.inventory_stop_pct;
             let stop_short = inv < (1.0 - self.inventory_stop_pct);
 
             if stop_long || stop_short {
@@ -338,9 +370,15 @@ impl Strategy for QueueFarmerV4 {
                 let total_base_equiv = port.base_balance + port.quote_balance / mid;
                 let target_base = total_base_equiv * dec!(0.5);
                 let (side, amount) = if stop_long {
-                    (OrderSide::Sell, (port.base_balance - target_base).max(Decimal::ZERO))
+                    (
+                        OrderSide::Sell,
+                        (port.base_balance - target_base).max(Decimal::ZERO),
+                    )
                 } else {
-                    (OrderSide::Buy, (target_base - port.base_balance).max(Decimal::ZERO))
+                    (
+                        OrderSide::Buy,
+                        (target_base - port.base_balance).max(Decimal::ZERO),
+                    )
                 };
 
                 if amount > Decimal::ZERO {
@@ -391,14 +429,21 @@ impl Strategy for QueueFarmerV4 {
         // 4. Volatility filter — pull quotes when rolling vol spikes
         // -----------------------------------------------------------------------
         if self.vol_enabled && self.return_history.len() >= self.vol_lookback {
-            let mean: f64 = self.return_history.iter().rev().take(self.vol_lookback).sum::<f64>()
+            let mean: f64 = self
+                .return_history
+                .iter()
+                .rev()
+                .take(self.vol_lookback)
+                .sum::<f64>()
                 / self.vol_lookback as f64;
-            let variance: f64 = self.return_history
+            let variance: f64 = self
+                .return_history
                 .iter()
                 .rev()
                 .take(self.vol_lookback)
                 .map(|r| (r - mean).powi(2))
-                .sum::<f64>() / self.vol_lookback as f64;
+                .sum::<f64>()
+                / self.vol_lookback as f64;
             let vol_bps = variance.sqrt() * 10000.0;
             if vol_bps > self.vol_threshold_bps {
                 self.vol_blocks += 1;
@@ -463,7 +508,11 @@ impl Strategy for QueueFarmerV4 {
         let mut momentum_suppress_ask = false;
         if self.momentum_enabled && self.mid_history.len() > self.momentum_lookback {
             let mid_now = self.mid_history.back().copied().unwrap_or(0.0);
-            let mid_old = self.mid_history.get(self.mid_history.len() - 1 - self.momentum_lookback).copied().unwrap_or(0.0);
+            let mid_old = self
+                .mid_history
+                .get(self.mid_history.len() - 1 - self.momentum_lookback)
+                .copied()
+                .unwrap_or(0.0);
             if mid_old > 0.0 {
                 let mom_bps = (mid_now - mid_old) / mid_old * 10000.0;
                 if mom_bps < -self.momentum_threshold_bps {
@@ -484,8 +533,8 @@ impl Strategy for QueueFarmerV4 {
         //    We need to post asks as soon as we have base to sell (inv > 0.01).
         // -----------------------------------------------------------------------
         let deviation = (inv - 0.5).abs();
-        let _suppression = (deviation / (self.inventory_stop_pct - 0.5) * self.skew_sensitivity)
-            .clamp(0.0, 1.0);
+        let _suppression =
+            (deviation / (self.inventory_stop_pct - 0.5) * self.skew_sensitivity).clamp(0.0, 1.0);
 
         let mut bid_allowed = if inv > 0.5 { inv < 0.60 } else { true };
         let mut ask_allowed = if inv < 0.5 { inv > 0.01 } else { true };
@@ -495,11 +544,11 @@ impl Strategy for QueueFarmerV4 {
         if bid_allowed {
             self.quotes_placed += 1;
             intents.push(OrderIntent {
-                side:       OrderSide::Buy,
-                price:      our_bid,
-                amount:     self.order_amount,
+                side: OrderSide::Buy,
+                price: our_bid,
+                amount: self.order_amount,
                 order_type: OrderType::Limit,
-                layer:      1,
+                layer: 1,
             });
         } else {
             self.bid_suppressed += 1;
@@ -509,11 +558,11 @@ impl Strategy for QueueFarmerV4 {
         if ask_allowed {
             self.quotes_placed += 1;
             intents.push(OrderIntent {
-                side:       OrderSide::Sell,
-                price:      our_ask,
-                amount:     self.order_amount,
+                side: OrderSide::Sell,
+                price: our_ask,
+                amount: self.order_amount,
                 order_type: OrderType::Limit,
-                layer:      1,
+                layer: 1,
             });
         } else {
             self.ask_suppressed += 1;
@@ -524,13 +573,17 @@ impl Strategy for QueueFarmerV4 {
     }
 
     fn on_fill(&mut self, fill: &Fill, _port: &mut Portfolio, _ts: f64) {
-        if fill.layer == 0 { return; }
+        if fill.layer == 0 {
+            return;
+        }
         self.total_maker_fills += 1;
     }
 
     fn validate_config(&self) -> Result<(), StrategyError> {
         if self.order_amount <= Decimal::ZERO {
-            return Err(StrategyError::InvalidConfig("order_amount must be > 0".into()));
+            return Err(StrategyError::InvalidConfig(
+                "order_amount must be > 0".into(),
+            ));
         }
         if self.tick_size <= Decimal::ZERO {
             return Err(StrategyError::InvalidConfig("tick_size must be > 0".into()));
